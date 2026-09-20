@@ -1,0 +1,560 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hệ Thống Bãi Đỗ Xe Thông Minh - PBL4 | Smart Parking Management</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* PBL4 Blue Academic Palette */
+    :root {
+      --PBL4-blue: #004b87;
+      --PBL4-blue-dark: #003366;
+      --PBL4-blue-light: #e8f0fe;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased min-h-screen font-sans">
+
+  <!-- Top Institutional Header (Phong cách ĐH Bách Khoa - ĐH Đà Nẵng) -->
+  <header class="bg-white border-b border-slate-200 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <!-- Logo Badge -->
+        <div class="w-14 h-14 bg-[#004b87] rounded-lg flex flex-col items-center justify-center text-white shadow-sm border border-[#003366]">
+          <span class="font-black text-lg tracking-wider leading-none">PBL4</span>
+          <span class="text-[9px] uppercase tracking-tighter opacity-90">ADMIN</span>
+        </div>
+        <div>
+          <div class="text-xs uppercase font-bold tracking-wider text-slate-600">Trung Tâm Điều Hành Bãi Đỗ Xe Thông Minh</div>
+          <h1 class="text-lg md:text-xl font-extrabold text-[#004b87] tracking-tight uppercase">Hệ Thống Bãi Đỗ Xe Thông Minh - PBL4</h1>
+          <div class="text-xs text-slate-500 font-medium">Trung tâm Giám sát & Quản trị Vận hành Thời gian thực</div>
+        </div>
+      </div>
+
+      <!-- Quick status & Admin info -->
+      <div class="flex items-center gap-3">
+        <div class="text-right hidden sm:block">
+          <div class="text-xs font-bold text-slate-800">Cán bộ Quản trị</div>
+          <div class="text-[11px] text-slate-500">Bộ Phận Quản Trị Hệ Thống</div>
+        </div>
+        <div class="w-10 h-10 rounded-full bg-[#e8f0fe] border border-[#004b87]/30 flex items-center justify-center text-[#004b87] font-bold text-sm">
+          IT
+        </div>
+      </div>
+    </div>
+
+    <!-- Navigation Menu Bar -->
+    <nav class="bg-[#004b87] text-white">
+      <div class="max-w-7xl mx-auto px-4 flex items-center justify-between overflow-x-auto text-xs font-semibold tracking-wide uppercase">
+        <div class="flex items-center">
+          <a href="#" class="px-4 py-3 bg-[#003366] text-white border-b-2 border-amber-400 font-bold whitespace-nowrap">Tổng Quan Hệ Thống</a>
+          <a href="#" class="px-4 py-3 hover:bg-[#003870] transition whitespace-nowrap">Sơ Đồ Ô Đỗ (4 Ô)</a>
+          <a href="#" class="px-4 py-3 hover:bg-[#003870] transition whitespace-nowrap">Phiên Xe Hoạt Động</a>
+          <a href="#" class="px-4 py-3 hover:bg-[#003870] transition whitespace-nowrap">Xác Nhận Thủ Công (Review)</a>
+          <a href="#" class="px-4 py-3 hover:bg-[#003870] transition whitespace-nowrap">Lịch Sử Vào / Ra</a>
+          <a href="#" class="px-4 py-3 hover:bg-[#003870] transition whitespace-nowrap">Báo Cáo & Đánh Giá</a>
+        </div>
+        <div class="hidden lg:flex items-center gap-2 py-2 pr-2 text-[11px] font-normal normal-case">
+          <span class="inline-flex items-center gap-1 bg-emerald-700/80 px-2 py-0.5 rounded text-emerald-100">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span> Edge: Online
+          </span>
+          <span class="inline-flex items-center gap-1 bg-sky-700/80 px-2 py-0.5 rounded text-sky-100">
+            ESP32: Sẵn sàng
+          </span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Breadcrumb Bar -->
+    <div class="bg-slate-200/80 border-b border-slate-300 py-1.5 px-4 text-xs text-slate-600">
+      <div class="max-w-7xl mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-1.5">
+          <span class="hover:underline cursor-pointer">Trang chủ</span>
+          <span>/</span>
+          <span class="hover:underline cursor-pointer">Đồ án PBL4</span>
+          <span>/</span>
+          <span class="font-semibold text-slate-800">Bảng điều khiển giám sát</span>
+        </div>
+        <div class="text-[11px] text-slate-500 font-mono">
+          Thời gian hệ thống: <span id="clock" class="font-semibold text-slate-700">14:45:00</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 py-5 relative">
+
+    <!-- Demo Simulation Banner -->
+    <div class="mb-5 bg-white border border-blue-200 rounded-lg p-3 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+      <div class="flex items-center gap-2">
+        <span class="bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded text-[11px]">DEMO KỊCH BẢN</span>
+        <span class="text-slate-700 font-medium">Mô phỏng kích hoạt cảm biến cổng vào để kiểm tra tính năng tự động mở camera:</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button onclick="simulateVehicleArrival()" class="bg-[#004b87] hover:bg-[#003870] text-white px-3 py-1.5 rounded font-semibold transition shadow-sm">
+          🚗 Giả lập: Xe tới cổng (Tự mở Camera)
+        </button>
+        <button onclick="simulateVehicleParked()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded font-semibold transition">
+          🅿️ Xe đã vào ô (Tự thu gọn)
+        </button>
+      </div>
+    </div>
+
+    <!-- 3 CAMERA OVERLAY PANEL (Drawer thu gọn / mở rộng) -->
+    <!-- Nút dọc nằm gần sát lề trái với mũi tên tam giác tù -->
+    <div class="fixed left-0 top-1/3 z-50 flex items-center transition-all duration-300" id="camera-dock">
+      
+      <!-- Nút dọc hình chữ nhật có mũi tên tam giác tù -->
+      <button 
+        id="camera-toggle-btn"
+        onclick="toggleCameraPanel()" 
+        title="Bấm để Xem/Thu gọn 3 Camera Giám sát"
+        class="bg-[#004b87] hover:bg-[#003870] text-white shadow-xl border-y border-r border-[#003366] rounded-r-lg px-2 py-6 flex flex-col items-center justify-center gap-2 transition cursor-pointer select-none">
+        
+        <!-- Biểu tượng mũi tên hình tam giác tù (Chevron Right / Left) -->
+        <span id="camera-arrow-icon" class="text-amber-300 text-base font-bold transition-transform duration-300">
+          ▶
+        </span>
+        
+        <!-- Chữ dọc -->
+        <span class="text-[11px] font-bold uppercase tracking-widest text-slate-100 writing-mode-vertical" style="writing-mode: vertical-rl; text-orientation: mixed;">
+          CAMERA
+        </span>
+      </button>
+
+      <!-- Panel chứa 3 ô Camera (Mặc định ẩn sau nút) -->
+      <div 
+        id="camera-panel-content" 
+        class="hidden bg-white border-2 border-[#004b87] rounded-r-2xl shadow-2xl p-4 w-[860px] max-w-[92vw] overflow-x-auto">
+        
+        <!-- Header Panel Camera -->
+        <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+          <div class="flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-red-600 animate-ping"></span>
+            <h3 class="font-bold text-sm text-[#004b87] uppercase">Hệ Thống 3 Camera Giám Sát Cổng & Ô Đỗ</h3>
+            <span class="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-300" id="camera-status-text">
+              Đang ở chế độ chờ
+            </span>
+          </div>
+          <button onclick="toggleCameraPanel(false)" class="text-xs text-slate-500 hover:text-red-600 font-bold px-2 py-1 bg-slate-100 rounded hover:bg-red-50">
+            ✕ Thu gọn lại
+          </button>
+        </div>
+
+        <!-- 3 Ô Camera lần lượt từ trái qua phải -->
+        <div class="flex flex-col lg:flex-row items-center gap-4 justify-between">
+
+          <!-- 1. Camera Toàn Cảnh (Hình chữ nhật 16:9, thiết bị camera HD) -->
+          <div class="flex-1 w-full flex flex-col items-center">
+            <div class="w-full flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5 px-1">
+              <span>1. Camera Toàn Cảnh Ô Đỗ</span>
+              <span class="text-[10px] bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-mono">HD 16:9</span>
+            </div>
+            
+            <!-- Box Camera 1 (16:9) -->
+            <div class="w-full aspect-video bg-slate-900 rounded-lg border-2 border-slate-300 relative flex flex-col items-center justify-center text-white overflow-hidden shadow-inner group">
+              <!-- Dummy visual / Placeholder -->
+              <div class="text-3xl mb-1 opacity-70">📹</div>
+              <div class="text-xs font-semibold text-slate-300">Camera Toàn Cảnh 4 Ô (A1-B2)</div>
+              <div class="text-[10px] text-slate-400 mt-1 font-mono">Đang chờ luồng RTSP / USB Index #2</div>
+              
+              <!-- Indicator Live -->
+              <div class="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> LIVE
+              </div>
+              <div class="absolute bottom-2 right-2 text-[10px] bg-black/60 px-1.5 py-0.5 rounded text-slate-300 font-mono">
+                1920x1080 @15fps
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-1 text-center">Theo dõi phát hiện ô trống/có xe theo ROI</div>
+          </div>
+
+          <!-- 2. Camera Khuôn Mặt (Hình vuông 1:1) -->
+          <div class="w-52 flex flex-col items-center">
+            <div class="w-full flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5 px-1">
+              <span>2. Camera Mặt Tài Xế</span>
+              <span class="text-[10px] bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-mono">1:1 Vuông</span>
+            </div>
+
+            <!-- Box Camera 2 (1:1 Vuông) -->
+            <div class="w-52 h-52 bg-slate-900 rounded-lg border-2 border-slate-300 relative flex flex-col items-center justify-center text-white overflow-hidden shadow-inner">
+              <div class="text-3xl mb-1 opacity-70">👤</div>
+              <div class="text-xs font-semibold text-slate-300">Nhận Diện Khuôn Mặt</div>
+              <div class="text-[10px] text-slate-400 mt-1 font-mono">InsightFace Buffalo_L</div>
+
+              <!-- Alignment Guide Overlay -->
+              <div class="absolute inset-4 border border-dashed border-cyan-400/50 rounded-full pointer-events-none"></div>
+
+              <div class="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> 1:1
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-1 text-center">Trích xuất Face Embedding trong RAM</div>
+          </div>
+
+          <!-- 3. Camera Biển Số Tại Cổng (Hình vuông 1:1) -->
+          <div class="w-52 flex flex-col items-center">
+            <div class="w-full flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5 px-1">
+              <span>3. Camera Biển Số Cổng</span>
+              <span class="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-mono">1:1 Vuông</span>
+            </div>
+
+            <!-- Box Camera 3 (1:1 Vuông) -->
+            <div class="w-52 h-52 bg-slate-900 rounded-lg border-2 border-slate-300 relative flex flex-col items-center justify-center text-white overflow-hidden shadow-inner">
+              <div class="text-3xl mb-1 opacity-70">🚗</div>
+              <div class="text-xs font-semibold text-slate-300">Chụp Biển Số Xe</div>
+              <div class="text-[10px] text-slate-400 mt-1 font-mono">YOLO + OCR Model</div>
+
+              <!-- Plate Box Simulation -->
+              <div class="absolute bottom-4 bg-white text-black font-mono font-black text-xs px-2.5 py-1 rounded border border-slate-400 shadow">
+                43A - 123.45
+              </div>
+
+              <div class="absolute top-2 left-2 flex items-center gap-1.5 bg-black/60 px-2 py-0.5 rounded text-[10px] font-bold text-emerald-400">
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span> 1:1
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-500 mt-1 text-center">Tự động nhận diện biển số khi xe đến</div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- 2 Column Layout (Left: 4 Slots & Sessions | Right: Manual Review & System Log) -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Left 2 Cols: Parking Slots Layout & Active Sessions -->
+      <div class="lg:col-span-2 space-y-6">
+
+        <!-- Sơ đồ 4 Ô Đỗ Xe (A1, A2, B1, B2) -->
+        <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-4 border-b border-slate-200 gap-2">
+            <div>
+              <h2 class="font-extrabold text-base text-[#004b87] uppercase flex items-center gap-2">
+                <span>Sơ Đồ Trực Quan 4 Vị Trí Đỗ Xe</span>
+                <span class="text-xs bg-[#e8f0fe] text-[#004b87] font-semibold px-2 py-0.5 rounded border border-blue-200 normal-case">Khu vực A & B</span>
+              </h2>
+              <p class="text-xs text-slate-500">Giám sát vị trí thời gian thực qua camera toàn cảnh số 1</p>
+            </div>
+            
+            <!-- Chú thích màu sắc (Legend) -->
+            <div class="flex items-center gap-3 text-xs font-semibold">
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-emerald-500 border border-emerald-600"></span> Trống (FREE)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-amber-400 border border-amber-500"></span> Đã gán (ASSIGNED)</span>
+              <span class="flex items-center gap-1"><span class="w-3 h-3 rounded bg-[#004b87] border border-[#003366]"></span> Có xe (OCCUPIED)</span>
+            </div>
+          </div>
+
+          <!-- 4 Slots Visual Bays -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-xl border border-slate-200">
+
+            <!-- Slot A1: Có xe -->
+            <div class="bg-white border-2 border-[#004b87] rounded-lg p-3 flex flex-col justify-between h-44 shadow-sm hover:shadow transition cursor-pointer" onclick="selectSlot('A1', 'OCCUPIED', '43A-123.45', '14:20:10')">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span class="font-black text-lg text-[#004b87]">A1</span>
+                <span class="text-[10px] bg-[#004b87] text-white px-2 py-0.5 rounded font-bold">CÓ XE</span>
+              </div>
+              <div class="my-auto text-center py-2">
+                <div class="text-3xl mb-1">🚙</div>
+                <div class="font-mono text-xs font-bold text-slate-800 bg-slate-100 py-1 px-1.5 rounded border border-slate-300">43A-123.45</div>
+              </div>
+              <div class="text-[11px] text-slate-500 flex justify-between border-t border-slate-100 pt-1.5">
+                <span>Thời gian:</span>
+                <span class="font-bold text-slate-700">25 phút</span>
+              </div>
+            </div>
+
+            <!-- Slot A2: Trống -->
+            <div class="bg-white border-2 border-emerald-500 rounded-lg p-3 flex flex-col justify-between h-44 shadow-sm hover:shadow transition cursor-pointer" onclick="selectSlot('A2', 'FREE', null, null)">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span class="font-black text-lg text-emerald-700">A2</span>
+                <span class="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold">TRỐNG</span>
+              </div>
+              <div class="my-auto text-center py-2">
+                <div class="text-3xl mb-1 text-emerald-500 opacity-60">🅿️</div>
+                <div class="text-xs text-emerald-700 font-bold">Sẵn sàng nhận xe</div>
+              </div>
+              <div class="text-[11px] text-slate-500 flex justify-between border-t border-slate-100 pt-1.5">
+                <span>Trạng thái:</span>
+                <span class="font-bold text-emerald-600">Khả dụng</span>
+              </div>
+            </div>
+
+            <!-- Slot B1: Đã gán -->
+            <div class="bg-white border-2 border-amber-400 rounded-lg p-3 flex flex-col justify-between h-44 shadow-sm hover:shadow transition cursor-pointer" onclick="selectSlot('B1', 'ASSIGNED', '92B-678.90', '14:42:05')">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span class="font-black text-lg text-amber-700">B1</span>
+                <span class="text-[10px] bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold">ĐÃ GÁN</span>
+              </div>
+              <div class="my-auto text-center py-2">
+                <div class="text-3xl mb-1">⏳</div>
+                <div class="font-mono text-xs font-bold text-amber-900 bg-amber-50 py-1 px-1.5 rounded border border-amber-200">92B-678.90</div>
+              </div>
+              <div class="text-[11px] text-slate-500 flex justify-between border-t border-slate-100 pt-1.5">
+                <span>Xe đang vào:</span>
+                <span class="font-bold text-amber-700">1 phút trước</span>
+              </div>
+            </div>
+
+            <!-- Slot B2: Trống -->
+            <div class="bg-white border-2 border-emerald-500 rounded-lg p-3 flex flex-col justify-between h-44 shadow-sm hover:shadow transition cursor-pointer" onclick="selectSlot('B2', 'FREE', null, null)">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-1.5">
+                <span class="font-black text-lg text-emerald-700">B2</span>
+                <span class="text-[10px] bg-emerald-100 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded font-bold">TRỐNG</span>
+              </div>
+              <div class="my-auto text-center py-2">
+                <div class="text-3xl mb-1 text-emerald-500 opacity-60">🅿️</div>
+                <div class="text-xs text-emerald-700 font-bold">Sẵn sàng nhận xe</div>
+              </div>
+              <div class="text-[11px] text-slate-500 flex justify-between border-t border-slate-100 pt-1.5">
+                <span>Trạng thái:</span>
+                <span class="font-bold text-emerald-600">Khả dụng</span>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="mt-3 text-xs text-slate-600 bg-slate-100 p-2 rounded border border-slate-200 flex items-center justify-between">
+            <span id="slot-detail-info">👉 Nhấp chuột vào bất kỳ ô đỗ nào ở trên để xem chi tiết thông tin phương tiện.</span>
+            <span class="text-[11px] text-[#004b87] font-semibold">Tự động đồng bộ với Firebase</span>
+          </div>
+        </div>
+
+        <!-- Bảng Phiên Đỗ Xe Đang Hoạt Động -->
+        <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm">
+          <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-200">
+            <div>
+              <h2 class="font-extrabold text-base text-[#004b87] uppercase">Danh Sách Phương Tiện Trong Bãi</h2>
+              <p class="text-xs text-slate-500">Các phiên xe đã qua cổng và đang đỗ hoặc đang làm thủ tục</p>
+            </div>
+            <span class="text-xs bg-slate-100 border border-slate-300 text-slate-700 px-2.5 py-1 rounded font-semibold">
+              Tổng: 2 xe
+            </span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border border-slate-200">
+              <thead class="bg-[#e8f0fe] text-[#004b87] font-bold uppercase text-[11px] border-b border-slate-200">
+                <tr>
+                  <th class="py-2.5 px-3 border-r border-slate-200">Mã Phiên</th>
+                  <th class="py-2.5 px-3 border-r border-slate-200">Biển Số Xe</th>
+                  <th class="py-2.5 px-3 border-r border-slate-200">Vị Trí Ô</th>
+                  <th class="py-2.5 px-3 border-r border-slate-200">Thời Gian Vào</th>
+                  <th class="py-2.5 px-3 border-r border-slate-200">Trạng Thái</th>
+                  <th class="py-2.5 px-3 text-center">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200 font-medium">
+                <tr class="hover:bg-slate-50">
+                  <td class="py-2.5 px-3 font-mono text-slate-600 border-r border-slate-200">SES-20260920-001</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200 font-bold font-mono text-slate-900">43A-123.45</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200"><span class="font-bold text-[#004b87]">A1</span></td>
+                  <td class="py-2.5 px-3 border-r border-slate-200 text-slate-600">14:20:10</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200">
+                    <span class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded text-[11px] font-semibold">Đang đỗ</span>
+                  </td>
+                  <td class="py-2.5 px-3 text-center">
+                    <button class="text-[#004b87] hover:underline font-semibold">Xem thẻ</button>
+                  </td>
+                </tr>
+                <tr class="hover:bg-slate-50">
+                  <td class="py-2.5 px-3 font-mono text-slate-600 border-r border-slate-200">SES-20260920-002</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200 font-bold font-mono text-slate-900">92B-678.90</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200"><span class="font-bold text-amber-700">B1</span></td>
+                  <td class="py-2.5 px-3 border-r border-slate-200 text-slate-600">14:42:05</td>
+                  <td class="py-2.5 px-3 border-r border-slate-200">
+                    <span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-[11px] font-semibold">Đang vào ô</span>
+                  </td>
+                  <td class="py-2.5 px-3 text-center">
+                    <button class="text-[#004b87] hover:underline font-semibold">Xem thẻ</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right 1 Col: Manual Review & Realtime Alerts -->
+      <div class="space-y-6">
+
+        <!-- Manual Review Panel (Duyệt Ngoại Lệ) -->
+        <div class="bg-white border-2 border-amber-400 rounded-xl p-5 shadow-sm" id="review-container">
+          <div class="flex items-center justify-between pb-2 mb-3 border-b border-amber-200">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></span>
+              <h2 class="font-extrabold text-sm text-[#004b87] uppercase">Yêu Cầu Xác Nhận Thủ Công</h2>
+            </div>
+            <span class="text-[10px] font-mono bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 rounded font-bold">
+              REQ-01
+            </span>
+          </div>
+
+          <p class="text-xs text-slate-600 mb-3 leading-relaxed">
+            Hệ thống phát hiện độ tương đồng khuôn mặt lúc ra nằm trong vùng bất định (0.45 - 0.65). Cần cán bộ quản trị kiểm tra.
+          </p>
+
+          <div class="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 space-y-2.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-500">Biển số nhận diện:</span>
+              <span class="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300">43A-123.45</span>
+            </div>
+
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-slate-500">Mã lý do:</span>
+              <span class="text-amber-700 font-bold">ERR_FACE_UNCERTAIN</span>
+            </div>
+
+            <!-- Cosine similarity meter -->
+            <div class="space-y-1 pt-1">
+              <div class="flex justify-between text-[11px] font-medium">
+                <span class="text-slate-600">Độ tương đồng Cosine:</span>
+                <span class="font-mono font-bold text-amber-700">0.58 / 1.00</span>
+              </div>
+              <div class="w-full bg-slate-200 h-2.5 rounded-full overflow-hidden flex border border-slate-300">
+                <div class="bg-red-400 h-full" style="width: 45%;" title="Từ chối (< 0.45)"></div>
+                <div class="bg-amber-400 h-full" style="width: 20%;" title="Cần duyệt (0.45 - 0.65)"></div>
+                <div class="bg-emerald-500 h-full" style="width: 35%;" title="Khớp (> 0.65)"></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-500">
+                <span>0.0 (Từ chối)</span>
+                <span class="text-amber-700 font-bold">0.45 - 0.65</span>
+                <span>1.0 (Khớp)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Buttons -->
+          <div class="grid grid-cols-2 gap-3" id="review-buttons">
+            <button onclick="submitReview(false)" class="bg-red-50 hover:bg-red-100 text-red-700 border border-red-300 font-bold py-2 px-3 rounded text-xs transition">
+              ✕ Từ Chối
+            </button>
+            <button onclick="submitReview(true)" class="bg-[#004b87] hover:bg-[#003870] text-white font-bold py-2 px-3 rounded text-xs transition shadow-sm">
+              ✓ Chấp Thuận Mở Cổng
+            </button>
+          </div>
+
+          <div id="review-result" class="hidden text-center py-3 bg-emerald-50 border border-emerald-200 rounded text-xs text-emerald-800 font-bold">
+            Đã gửi lệnh chấp thuận mở barie ra tới Edge Server!
+          </div>
+        </div>
+
+        <!-- Nhật Ký Vận Hành -->
+        <div class="bg-white border border-slate-300 rounded-xl p-5 shadow-sm">
+          <div class="flex items-center justify-between pb-2 mb-3 border-b border-slate-200">
+            <h2 class="font-extrabold text-sm text-[#004b87] uppercase">Nhật Ký Vận Hành Cục Bộ</h2>
+            <span class="text-[11px] text-slate-500">Realtime</span>
+          </div>
+
+          <div class="space-y-2.5 text-xs">
+            <div class="p-2 bg-slate-50 rounded border border-slate-200">
+              <div class="flex justify-between font-bold text-slate-700">
+                <span>🚪 Xe vào: 92B-678.90</span>
+                <span class="text-[10px] text-slate-500 font-normal">14:42:05</span>
+              </div>
+              <p class="text-slate-600 text-[11px]">Đã cấp ô đỗ B1. Barie cổng vào mở và đóng an toàn.</p>
+            </div>
+
+            <div class="p-2 bg-amber-50 rounded border border-amber-200">
+              <div class="flex justify-between font-bold text-amber-900">
+                <span>⚠️ Ngoại lệ cổng ra: 43A-123.45</span>
+                <span class="text-[10px] text-slate-500 font-normal">14:41:50</span>
+              </div>
+              <p class="text-amber-800 text-[11px]">Độ khớp mặt 0.58. Tạo yêu cầu xác nhận REQ-01.</p>
+            </div>
+
+            <div class="p-2 bg-slate-50 rounded border border-slate-200">
+              <div class="flex justify-between font-bold text-slate-700">
+                <span>🅿️ Cập nhật ô A1: CÓ XE</span>
+                <span class="text-[10px] text-slate-500 font-normal">14:20:45</span>
+              </div>
+              <p class="text-slate-600 text-[11px]">Camera toàn cảnh xác nhận xe đã đỗ đúng vị trí.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <script>
+    let isCameraOpen = false;
+
+    function toggleCameraPanel(forceState) {
+      const panel = document.getElementById('camera-panel-content');
+      const arrow = document.getElementById('camera-arrow-icon');
+      
+      if (typeof forceState === 'boolean') {
+        isCameraOpen = forceState;
+      } else {
+        isCameraOpen = !isCameraOpen;
+      }
+
+      if (isCameraOpen) {
+        panel.classList.remove('hidden');
+        arrow.innerText = '◀';
+        arrow.style.transform = 'scale(1.2)';
+      } else {
+        panel.classList.add('hidden');
+        arrow.innerText = '▶';
+        arrow.style.transform = 'scale(1.0)';
+      }
+    }
+
+    function simulateVehicleArrival() {
+      // 1. Tự động mở 3 ô camera
+      toggleCameraPanel(true);
+      document.getElementById('camera-status-text').innerText = '🔴 Đang chụp biển số & mặt tại cổng vào...';
+      document.getElementById('camera-status-text').className = 'text-[11px] bg-red-100 text-red-800 font-bold px-2 py-0.5 rounded border border-red-300';
+    }
+
+    function simulateVehicleParked() {
+      // 2. Xe đã đỗ đúng vị trí -> tự động thu gọn camera
+      toggleCameraPanel(false);
+      document.getElementById('camera-status-text').innerText = 'Đang ở chế độ chờ';
+      document.getElementById('camera-status-text').className = 'text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-300';
+      alert('Xe đã vào đúng vị trí ô đỗ! 3 ô camera tự động thu gọn vào lề trái.');
+    }
+
+    function selectSlot(id, status, plate, time) {
+      const info = document.getElementById('slot-detail-info');
+      if (status === 'FREE') {
+        info.innerHTML = `📍 <strong>Ô ${id}</strong>: Đang TRỐNG, sẵn sàng tiếp nhận xe mới.`;
+      } else if (status === 'ASSIGNED') {
+        info.innerHTML = `📍 <strong>Ô ${id}</strong>: Đã gán cho xe <strong class="text-amber-700 font-mono">${plate}</strong> lúc ${time}. Xe đang di chuyển tới ô.`;
+      } else if (status === 'OCCUPIED') {
+        info.innerHTML = `📍 <strong>Ô ${id}</strong>: Xe <strong class="text-[#004b87] font-mono">${plate}</strong> đang đỗ từ lúc ${time}.`;
+      }
+    }
+
+    function submitReview(approved) {
+      document.getElementById('review-buttons').classList.add('hidden');
+      const res = document.getElementById('review-result');
+      res.classList.remove('hidden');
+      if (approved) {
+        res.innerText = '✓ Đã chấp thuận mở barie ra cho xe 43A-123.45!';
+        res.className = 'text-center py-3 bg-emerald-50 border border-emerald-300 rounded text-xs text-emerald-800 font-bold';
+      } else {
+        res.innerText = '✕ Đã từ chối cho ra. Barie giữ nguyên đóng.';
+        res.className = 'text-center py-3 bg-red-50 border border-red-300 rounded text-xs text-red-800 font-bold';
+      }
+    }
+
+    // Đồng hồ hệ thống
+    setInterval(() => {
+      const now = new Date();
+      document.getElementById('clock').innerText = now.toLocaleTimeString('vi-VN');
+    }, 1000);
+  </script>
+
+</body>
+</html>
+
