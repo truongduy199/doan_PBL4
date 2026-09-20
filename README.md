@@ -14,3 +14,5 @@ Dự án Đồ án Chuyên ngành Công nghệ Thông tin (PBL4) - Trường Đ�
 - **System Tests (system-tests/)**: Kịch bản kiểm thử toàn trình từ đầu vào đến đầu ra.
 
 Xem chi tiết kiến trúc tại [Cau_truc_du_an_PBL4.md](Cau_truc_du_an_PBL4.md).
+
+Thành viên mới xem hướng dẫn cài đặt và quy trình làm việc tại [HUONG_DAN_SETUP_THANH_VIEN.md](HUONG_DAN_SETUP_THANH_VIEN.md).
