@@ -1,0 +1,1 @@
+﻿# Data Retention Policy\n\nChính sách lưu trữ và hủy dữ liệu khuôn mặt.

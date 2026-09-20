@@ -1,0 +1,1 @@
+﻿#!/bin/bash\npytest edge-server/tests

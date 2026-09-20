@@ -1,0 +1,1 @@
+﻿#!/bin/bash\ncd dashboard && npm run dev

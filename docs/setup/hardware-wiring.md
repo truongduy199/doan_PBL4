@@ -1,0 +1,1 @@
+﻿# Hardware Wiring\n\nSơ đồ đấu nối dây cảm biến, servo, LCD với ESP32.

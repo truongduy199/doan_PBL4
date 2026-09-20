@@ -1,0 +1,13 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SystemEventFirebaseSchema",
+  "type": "object",
+  "required": ["event_id", "type", "timestamp", "payload"],
+  "properties": {
+    "event_id": { "type": "string" },
+    "type": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "session_id": { "type": ["string", "null"] },
+    "payload": { "type": "object" }
+  }
+}

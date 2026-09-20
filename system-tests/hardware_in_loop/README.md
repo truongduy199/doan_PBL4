@@ -1,0 +1,1 @@
+﻿# Hardware-in-the-loop Testing\n\nHướng dẫn kiểm thử tích hợp phần cứng thật.

@@ -1,0 +1,42 @@
+﻿{
+  "edge_to_esp32": {
+    "open_gate": {
+      "version": 1,
+      "message_id": "cmd-001",
+      "type": "OPEN_GATE",
+      "gate_transaction_id": "GT-20260920-001",
+      "timestamp_ms": 1726815600000,
+      "payload": { "direction": "IN", "slot_id": "A1" },
+      "checksum": "a1b2c3d4"
+    },
+    "set_lcd": {
+      "version": 1,
+      "message_id": "cmd-002",
+      "type": "SET_LCD",
+      "gate_transaction_id": "GT-20260920-001",
+      "timestamp_ms": 1726815600100,
+      "payload": { "line1": "XIN CHAO: 43A-12345", "line2": "O DO: A1" },
+      "checksum": "e5f6g7h8"
+    }
+  },
+  "esp32_to_edge": {
+    "gate_in_trigger": {
+      "version": 1,
+      "message_id": "evt-001",
+      "type": "GATE_IN_TRIGGER",
+      "gate_transaction_id": "GT-20260920-001",
+      "timestamp_ms": 1726815598000,
+      "payload": { "sensor_id": "ENTRY_S1", "state": 1 },
+      "checksum": "12345678"
+    },
+    "passage_completed": {
+      "version": 1,
+      "message_id": "evt-002",
+      "type": "PASSAGE_COMPLETED",
+      "gate_transaction_id": "GT-20260920-001",
+      "timestamp_ms": 1726815605000,
+      "payload": { "direction": "IN", "duration_ms": 5000 },
+      "checksum": "87654321"
+    }
+  }
+}

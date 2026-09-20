@@ -1,0 +1,1 @@
+﻿stateDiagram-v2\n  [*] --> INIT\n  INIT --> ENTRY_PENDING\n  ENTRY_PENDING --> ACTIVE: Passage verified\n  ACTIVE --> EXIT_PENDING: Exit trigger\n  EXIT_PENDING --> COMPLETED: Exit verified\n  COMPLETED --> [*]

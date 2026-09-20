@@ -1,0 +1,29 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SystemStates",
+  "description": "Các trạng thái chuẩn hóa của hệ thống Smart Parking PBL4",
+  "session_states": {
+    "INIT": "Khởi tạo giao dịch tại cổng vào",
+    "ENTRY_PENDING": "Đang nhận diện biển số và khuôn mặt, giữ ô đỗ tạm thời",
+    "ACTIVE": "Xe đã qua cổng vào và đang đỗ hoặc đang di chuyển trong bãi",
+    "EXIT_PENDING": "Xe tại cổng ra, đang chờ đối sánh biển số và xác thực khuôn mặt 1:1",
+    "COMPLETED": "Xe đã rời bãi đỗ an toàn, phiên kết thúc",
+    "REJECTED": "Từ chối xe vào hoặc ra",
+    "REVIEW_REQUIRED": "Cần nhân viên can thiệp thủ công qua Dashboard"
+  },
+  "gate_states": {
+    "IDLE": "Không có xe, barie đóng",
+    "WAITING_VEHICLE": "Cảm biến 1 kích hoạt, chờ nhận diện và xử lý",
+    "BARRIER_OPEN": "Barie đang mở cho xe đi qua",
+    "WAITING_PASSAGE": "Chờ cảm biến 2 xác nhận xe đã đi qua hoàn toàn",
+    "CLOSING": "Barie đang hạ xuống",
+    "FAULT": "Lỗi phần cứng hoặc timeout kẹt xe"
+  },
+  "slot_states": {
+    "FREE": "Ô đỗ trống, sẵn sàng tiếp nhận xe",
+    "ASSIGNED": "Đã được gán cho một phiên vào đang di chuyển tới ô",
+    "OCCUPIED": "Xe đang đỗ trong ô",
+    "WRONG_VEHICLE": "Xe khác đỗ vào ô được gán",
+    "FAULT": "Lỗi camera giám sát ô đỗ hoặc vật cản bất thường"
+  }
+}

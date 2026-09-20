@@ -1,0 +1,1 @@
+﻿# SQLite Schema\n\nCấu trúc các bảng dữ liệu trong SQLite cục bộ.

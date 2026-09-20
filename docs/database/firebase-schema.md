@@ -1,0 +1,1 @@
+﻿# Firebase Schema\n\nCấu trúc dữ liệu JSON tree trên Firebase.

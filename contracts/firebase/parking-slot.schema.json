@@ -1,0 +1,13 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ParkingSlotFirebaseSchema",
+  "type": "object",
+  "required": ["slot_id", "status", "assigned_session_id", "updated_at"],
+  "properties": {
+    "slot_id": { "type": "string", "enum": ["A1", "A2", "B1", "B2"] },
+    "status": { "type": "string", "enum": ["FREE", "ASSIGNED", "OCCUPIED", "WRONG_VEHICLE", "FAULT"] },
+    "assigned_session_id": { "type": ["string", "null"] },
+    "current_plate": { "type": ["string", "null"] },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

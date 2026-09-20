@@ -1,0 +1,40 @@
+﻿[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smart-parking-edge"
+version = "0.1.0"
+description = "Edge Server cho hệ thống Bãi đỗ xe thông minh PBL4"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "PBL4 Smart Parking Team" }
+]
+dependencies = [
+    "insightface>=0.7.3",
+    "onnxruntime>=1.15.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pyserial>=3.5",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "pyyaml>=6.0",
+    "firebase-admin>=6.2.0",
+    "cryptography>=41.0.0",
+    "rich>=13.0.0"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.7.0",
+    "ruff>=0.0.280",
+    "mypy>=1.5.0"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

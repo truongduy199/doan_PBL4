@@ -1,0 +1,11 @@
+﻿face:
+  model_root: "models/insightface"
+  model_pack: "buffalo_l"
+  providers:
+    - "CPUExecutionProvider"
+  detection_size: [640, 640]
+  liveness_enabled: true
+
+plate:
+  detector_path: "models/plate/detector.onnx"
+  ocr_path: "models/plate/ocr.onnx"

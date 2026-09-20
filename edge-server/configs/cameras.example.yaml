@@ -1,0 +1,16 @@
+﻿cameras:
+  entry_camera:
+    id: 0
+    name: "Camera Cổng Vào (Biển số & Mặt)"
+    fps: 30
+    resolution: [1280, 720]
+  exit_camera:
+    id: 1
+    name: "Camera Cổng Ra (Biển số & Mặt)"
+    fps: 30
+    resolution: [1280, 720]
+  parking_camera:
+    id: 2
+    name: "Camera Toàn Cảnh Ô Đỗ"
+    fps: 15
+    resolution: [1920, 1080]

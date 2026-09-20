@@ -1,0 +1,21 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SystemErrorCodes",
+  "description": "Danh sách mã lỗi chuẩn hóa của hệ thống",
+  "errors": {
+    "ERR_NONE": { "code": 0, "description": "Thành công không có lỗi" },
+    "ERR_PLATE_NOT_FOUND": { "code": 101, "description": "Không phát hiện được biển số xe" },
+    "ERR_PLATE_UNREADABLE": { "code": 102, "description": "Biển số xe bị mờ hoặc không đọc được OCR" },
+    "ERR_FACE_NOT_FOUND": { "code": 201, "description": "Không tìm thấy khuôn mặt của tài xế" },
+    "ERR_FACE_MULTIPLE": { "code": 202, "description": "Phát hiện nhiều hơn 1 khuôn mặt trong vùng quét" },
+    "ERR_FACE_QUALITY_LOW": { "code": 203, "description": "Ảnh khuôn mặt không đạt tiêu chuẩn độ sáng/góc nghiêng/độ nét" },
+    "ERR_FACE_LIVENESS_FAILED": { "code": 204, "description": "Khuôn mặt không vượt qua bài kiểm tra độ sống RGB" },
+    "ERR_FACE_MISMATCH": { "code": 205, "description": "Khuôn mặt lúc ra không khớp với khuôn mặt lúc vào (Cosine similarity < T_reject)" },
+    "ERR_FACE_UNCERTAIN": { "code": 206, "description": "Độ tương đồng khuôn mặt nằm trong vùng bất định (T_reject <= score < T_accept)" },
+    "ERR_PARKING_FULL": { "code": 301, "description": "Bãi đỗ đã hết ô trống khả dụng" },
+    "ERR_PARKING_WRONG_SLOT": { "code": 302, "description": "Xe đỗ sai vị trí ô được cấp phát" },
+    "ERR_SERIAL_TIMEOUT": { "code": 401, "description": "Mất kết nối hoặc hết thời gian chờ phản hồi từ ESP32" },
+    "ERR_SERIAL_NACK": { "code": 402, "description": "ESP32 từ chối thực hiện lệnh" },
+    "ERR_GATE_TIMEOUT": { "code": 403, "description": "Xe không đi qua barie trong thời gian quy định" }
+  }
+}

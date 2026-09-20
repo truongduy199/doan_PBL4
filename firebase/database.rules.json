@@ -1,0 +1,17 @@
+﻿{
+  "rules": {
+    ".read": "auth != null",
+    "parking_slots": {
+      ".write": "auth.token.admin === true"
+    },
+    "parking_sessions": {
+      ".write": "auth.token.admin === true"
+    },
+    "review_requests": {
+      ".write": "auth != null"
+    },
+    "events": {
+      ".write": "auth.token.admin === true"
+    }
+  }
+}

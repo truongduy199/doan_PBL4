@@ -1,0 +1,1 @@
+﻿# Tính toán TAR và FAR

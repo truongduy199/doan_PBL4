@@ -1,0 +1,19 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SerialCommandsSchema",
+  "description": "Schema cho các lệnh từ Edge Server gửi tới ESP32",
+  "type": "object",
+  "required": ["version", "message_id", "type", "gate_transaction_id", "timestamp_ms", "payload"],
+  "properties": {
+    "version": { "type": "integer", "enum": [1] },
+    "message_id": { "type": "string" },
+    "type": {
+      "type": "string",
+      "enum": ["OPEN_GATE", "SET_LCD", "SET_GUIDANCE", "BUZZER", "PING"]
+    },
+    "gate_transaction_id": { "type": "string" },
+    "timestamp_ms": { "type": "integer" },
+    "payload": { "type": "object" },
+    "checksum": { "type": "string" }
+  }
+}

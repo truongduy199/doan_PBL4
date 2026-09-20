@@ -1,0 +1,1 @@
+﻿# ADR-001: Edge Server Authority\n\nEdge Server là nơi duy nhất ra quyết định mở barie.

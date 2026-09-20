@@ -1,0 +1,13 @@
+﻿thresholds:
+  face:
+    t_accept: 0.65
+    t_reject: 0.45
+    min_face_size: 80
+    max_yaw: 30.0
+    max_pitch: 30.0
+    blur_threshold: 100.0
+  plate:
+    min_confidence: 0.80
+  parking:
+    occupancy_threshold: 0.60
+    temporal_filter_frames: 5

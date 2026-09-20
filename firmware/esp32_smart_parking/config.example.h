@@ -1,0 +1,8 @@
+﻿#ifndef CONFIG_H
+#define CONFIG_H
+
+#define SERIAL_BAUD 115200
+#define SENSOR_DEBOUNCE_MS 50
+#define BARRIER_TIMEOUT_MS 10000
+
+#endif // CONFIG_H

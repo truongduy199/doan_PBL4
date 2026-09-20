@@ -1,0 +1,1 @@
+﻿# InsightFace Setup\n\nHướng dẫn cài đặt và tải model buffalo_l.

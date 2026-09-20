@@ -1,0 +1,85 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.venv
+venv/
+ENV/
+
+# Edge Server specific
+edge-server/third_party/insightface-src/
+edge-server/var/db/*.db
+edge-server/var/db/*.sqlite3
+edge-server/var/logs/*.log
+edge-server/var/plate_snapshots/*.jpg
+edge-server/var/plate_snapshots/*.png
+edge-server/var/cache/*
+!edge-server/var/**/.gitkeep
+
+# Model weights (Large files)
+edge-server/models/insightface/**/*.onnx
+edge-server/models/insightface/**/*.zip
+edge-server/models/insightface/**/*.tar.gz
+edge-server/models/plate/**/*.onnx
+edge-server/models/plate/**/*.pt
+edge-server/models/plate/**/*.weights
+!edge-server/models/**/.gitkeep
+!edge-server/models/**/README.md
+
+# Node / Dashboard
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.env.local
+dashboard/.env.*.local
+dashboard/npm-debug.log*
+dashboard/yarn-debug.log*
+dashboard/yarn-error.log*
+dashboard/.pnpm-debug.log*
+
+# Arduino / Firmware build
+firmware/**/build/
+firmware-tests/**/build/
+*.hex
+*.bin
+*.elf
+
+# Firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+ui-debug.log*
+edge-server/configs/firebase-credentials.json
+edge-server/configs/*service-account*.json
+edge-server/configs/*serviceAccount*.json
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.log

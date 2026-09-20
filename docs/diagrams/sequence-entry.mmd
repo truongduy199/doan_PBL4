@@ -1,0 +1,1 @@
+﻿sequenceDiagram\n  autonumber\n  ESP32->>Edge: GATE_IN_TRIGGER\n  Edge->>Camera: Capture plate & face\n  Edge->>Edge: Process AI & assign slot\n  Edge->>ESP32: OPEN_GATE + SET_LCD\n  ESP32->>Edge: PASSAGE_COMPLETED

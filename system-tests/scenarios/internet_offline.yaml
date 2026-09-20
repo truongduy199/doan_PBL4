@@ -1,0 +1,1 @@
+﻿scenario: internet_offline\ndescription: Mất mạng Internet, hệ thống vận hành local và lưu outbox

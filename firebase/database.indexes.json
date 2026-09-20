@@ -1,0 +1,11 @@
+﻿{
+  "parking_sessions": {
+    ".indexOn": ["status", "plate_number", "entry_time"]
+  },
+  "events": {
+    ".indexOn": ["timestamp", "session_id"]
+  },
+  "review_requests": {
+    ".indexOn": ["status", "created_at"]
+  }
+}

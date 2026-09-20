@@ -1,0 +1,1 @@
+﻿# Hiệu chỉnh ngưỡng cosine

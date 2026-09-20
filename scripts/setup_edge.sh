@@ -1,0 +1,1 @@
+﻿#!/bin/bash\ncd edge-server && python -m venv .venv && source .venv/bin/activate && pip install -e .

@@ -1,0 +1,15 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ParkingSessionFirebaseSchema",
+  "type": "object",
+  "required": ["session_id", "plate_number", "slot_id", "status", "entry_time"],
+  "properties": {
+    "session_id": { "type": "string" },
+    "plate_number": { "type": "string" },
+    "slot_id": { "type": "string" },
+    "status": { "type": "string", "enum": ["ACTIVE", "COMPLETED", "REJECTED", "REVIEW_REQUIRED"] },
+    "entry_time": { "type": "string", "format": "date-time" },
+    "exit_time": { "type": ["string", "null"], "format": "date-time" },
+    "plate_image_url": { "type": ["string", "null"] }
+  }
+}

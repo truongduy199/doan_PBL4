@@ -1,0 +1,1 @@
+﻿sequenceDiagram\n  autonumber\n  Edge->>Firebase: Create review_request\n  Dashboard->>Firebase: Operator submits decision\n  Firebase->>Edge: Sync decision\n  Edge->>ESP32: OPEN_GATE (if approved)

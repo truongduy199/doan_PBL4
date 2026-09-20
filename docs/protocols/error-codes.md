@@ -1,0 +1,1 @@
+﻿# Error Codes\n\nBảng mã lỗi toàn hệ thống.

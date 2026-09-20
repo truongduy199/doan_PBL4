@@ -1,0 +1,1 @@
+﻿# Serial Protocol\n\nĐặc tả chi tiết giao thức Serial JSON có ACK.

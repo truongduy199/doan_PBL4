@@ -1,0 +1,15 @@
+﻿{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ReviewRequestFirebaseSchema",
+  "type": "object",
+  "required": ["request_id", "session_id", "reason_code", "status", "created_at"],
+  "properties": {
+    "request_id": { "type": "string" },
+    "session_id": { "type": "string" },
+    "reason_code": { "type": "string" },
+    "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED"] },
+    "operator_id": { "type": ["string", "null"] },
+    "created_at": { "type": "string", "format": "date-time" },
+    "resolved_at": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

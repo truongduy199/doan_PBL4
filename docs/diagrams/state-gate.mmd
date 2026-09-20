@@ -1,0 +1,1 @@
+﻿stateDiagram-v2\n  [*] --> IDLE\n  IDLE --> WAITING_VEHICLE: Vehicle detected\n  WAITING_VEHICLE --> BARRIER_OPEN: Approved\n  BARRIER_OPEN --> CLOSING: Passage completed\n  CLOSING --> IDLE

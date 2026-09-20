@@ -1,0 +1,1 @@
+﻿graph TD\n  ESP[ESP32] <-->|Serial| EDGE[Edge Server]\n  CAM[3 Cameras] --> EDGE\n  EDGE <--> DB[(SQLite)]\n  EDGE --> FB[(Firebase)]\n  DASH[Dashboard] <--> FB

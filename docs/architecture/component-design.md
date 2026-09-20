@@ -1,0 +1,1 @@
+﻿# Component Design\n\nThiết kế các thành phần Edge Server, ESP32 và Dashboard.

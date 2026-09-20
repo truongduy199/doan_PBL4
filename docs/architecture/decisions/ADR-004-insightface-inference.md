@@ -1,0 +1,1 @@
+﻿# ADR-004: InsightFace Inference\n\nSử dụng InsightFace Buffalo_L chạy CPU onnxruntime cho trích xuất đặc trưng.

@@ -1,0 +1,1 @@
+﻿# ADR-002: Local Face Data\n\nFace embeddings chỉ lưu trong SQLite cục bộ, không đẩy lên Cloud.

@@ -1,0 +1,1 @@
+﻿#!/bin/bash\ncd edge-server && python -m smart_parking.main

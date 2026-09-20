@@ -1,0 +1,1 @@
+﻿# ADR-003: Firebase Sync\n\nĐồng bộ dữ liệu giám sát realtime qua mô hình Outbox.
