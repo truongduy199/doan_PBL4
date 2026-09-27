@@ -158,7 +158,8 @@ Nếu InsightFace báo lỗi khi build package, hãy kiểm tra đang dùng Pyth
 Model không được lưu trên GitHub vì có file lớn hơn giới hạn thông thường của Git. Mỗi máy chạy AI phải tải model riêng:
 
 ```powershell
-& ".\.venv\Scripts\insightface-cli.exe" model.download buffalo_l --root ".\edge-server\models\insightface"
+& ".\.venv\Scripts\insightface-cli.exe" model.download buffalo_l --root ".\edge-server\models\insightface" --force
+python -c "from insightface.addons import ensure_addon; print(ensure_addon('liveness', root=r'.\edge-server\models\insightface'))"
 ```
 
 Kiểm tra model:
@@ -168,6 +169,8 @@ Get-ChildItem ".\edge-server\models\insightface\models\buffalo_l" -Filter "*.onn
 ```
 
 Thư mục này cần có 5 file `.onnx`. Các file model đã được `.gitignore`; không bật tùy chọn đưa chúng vào commit.
+
+Lệnh thứ hai tải và kiểm tra SHA256 cho addon `liveness.onnx`. Demo webcam bắt buộc addon này và chạy theo nguyên tắc fail-closed: ảnh giấy, màn hình điện thoại hoặc frame không có kết quả liveness hợp lệ sẽ không được tạo embedding và không mở khóa `SPACE`.
 
 Lưu ý: `edge-server/scripts/download_insightface_models.py` và `verify_model_hashes.py` hiện mới là khung phát triển, chưa thay thế lệnh `insightface-cli` ở trên.
 
@@ -414,7 +417,8 @@ Không cần thay đổi execution policy toàn máy.
 Chạy lại:
 
 ```powershell
-& ".\.venv\Scripts\insightface-cli.exe" model.download buffalo_l --root ".\edge-server\models\insightface"
+& ".\.venv\Scripts\insightface-cli.exe" model.download buffalo_l --root ".\edge-server\models\insightface" --force
+python -c "from insightface.addons import ensure_addon; print(ensure_addon('liveness', root=r'.\edge-server\models\insightface'))"
 ```
 
 ### Không mở được webcam

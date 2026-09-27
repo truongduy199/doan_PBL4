@@ -1,9 +1,10 @@
 """Chuong trinh thu nghiem xac thuc khuon mat bang webcam va InsightFace.
 
 Quy trinh:
-1. Nguoi thu nhat nhan SPACE de quet va tao face template trong RAM.
-2. Doi sang nguoi thu hai, sau do nhan SPACE de quet va so sanh.
-3. Chuong trinh hien thi MATCH hoac NOT MATCH cung cosine score.
+1. Moi khuon mat phai vuot qua model liveness truoc khi duoc tao embedding.
+2. Nguoi thu nhat nhan SPACE de quet va tao face template trong RAM.
+3. Doi sang nguoi thu hai, sau do nhan SPACE de quet va so sanh.
+4. Chuong trinh hien thi MATCH hoac NOT MATCH cung cosine score.
 
 Anh webcam va embedding khong duoc ghi xuong dia.
 """
@@ -21,7 +22,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
 EDGE_SERVER_DIR = Path(__file__).resolve().parents[1]
 SRC_DIR = EDGE_SERVER_DIR / "src"
 if str(SRC_DIR) not in sys.path:
@@ -31,8 +31,8 @@ from smart_parking.ai.face.insightface_adapter import InsightFaceAdapter
 from smart_parking.ai.face.template import FaceTemplateNormalizer
 from smart_parking.ai.face.verifier import FaceVerifier
 
-
 WINDOW_NAME = "InsightFace Webcam Verification"
+LOGGER = logging.getLogger(__name__)
 
 
 class Phase(Enum):
@@ -47,7 +47,9 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Quet khuon mat thu nhat va xac thuc khuon mat thu hai bang webcam."
     )
-    parser.add_argument("--camera", type=int, default=0, help="Chi so webcam, mac dinh: 0")
+    parser.add_argument(
+        "--camera", type=int, default=0, help="Chi so webcam, mac dinh: 0"
+    )
     parser.add_argument(
         "--provider",
         choices=("auto", "cuda", "cpu"),
@@ -94,7 +96,13 @@ def parse_args() -> argparse.Namespace:
         "--ready-frames",
         type=int,
         default=3,
-        help="So frame hop le lien tiep de mo khoa SPACE, mac dinh: 3",
+        help="So frame song hop le lien tiep de mo khoa SPACE, mac dinh: 3",
+    )
+    parser.add_argument(
+        "--liveness-threshold",
+        type=float,
+        default=0.8,
+        help="Nguong chong gia mao trong khoang [0, 1], mac dinh: 0.8",
     )
     parser.add_argument(
         "--model-root",
@@ -118,6 +126,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--inference-fps phai lon hon 0")
     if args.ready_frames < 1:
         parser.error("--ready-frames phai lon hon hoac bang 1")
+    if not 0.0 <= args.liveness_threshold <= 1.0:
+        parser.error("--liveness-threshold phai nam trong khoang [0, 1]")
     return args
 
 
@@ -152,8 +162,9 @@ def initialize_adapter(
     det_size: int,
     cpu_threads: int,
     provider: str,
+    liveness_threshold: float,
 ) -> InsightFaceAdapter:
-    """Khoi tao detector + recognition, uu tien CUDA va fallback CPU."""
+    """Khoi tao detector, anti-spoof va recognition; uu tien CUDA."""
     import onnxruntime as ort
     from insightface.app import FaceAnalysis
 
@@ -187,6 +198,9 @@ def initialize_adapter(
             name="buffalo_l",
             root=str(model_root),
             allowed_modules=["detection", "recognition"],
+            addons=["liveness"],
+            liveness_mode="normal",
+            liveness_threshold=liveness_threshold,
             providers=providers,
             sess_options=session_options,
         )
@@ -199,7 +213,7 @@ def initialize_adapter(
     except Exception:
         if provider != "auto" or requested_providers == ["CPUExecutionProvider"]:
             raise
-        logging.exception("CUDA khoi tao that bai; fallback ve CPU")
+        LOGGER.exception("CUDA khoi tao that bai; fallback ve CPU")
         adapter.app = build_app(["CPUExecutionProvider"])
 
     model_providers = [
@@ -246,14 +260,49 @@ def put_lines(
         )
 
 
+def evaluate_liveness(
+    face: object,
+    threshold: float,
+) -> tuple[bool, float | None, str]:
+    """Doc ket qua anti-spoof theo kieu fail-closed."""
+    result = getattr(face, "liveness", None)
+    if result is None:
+        return False, None, "LOCKED - liveness result unavailable"
+
+    status = getattr(result, "status", None)
+    if status == "input_rejected":
+        return False, None, "LOCKED - step back and keep face inside frame"
+    if status != "ok":
+        return False, None, "LOCKED - invalid liveness result"
+
+    raw_score = getattr(result, "live_score", None)
+    try:
+        live_score = float(raw_score)
+    except (TypeError, ValueError):
+        return False, None, "LOCKED - invalid liveness score"
+    if not math.isfinite(live_score) or not 0.0 <= live_score <= 1.0:
+        return False, None, "LOCKED - invalid liveness score"
+
+    is_live = getattr(result, "is_live", None)
+    if is_live is not True or live_score < threshold:
+        return (
+            False,
+            live_score,
+            f"SPOOF BLOCKED - fake/phone/photo suspected ({live_score:.2f})",
+        )
+    return True, live_score, f"LIVE - liveness score {live_score:.2f}"
+
+
 def analyze_frame(
     frame: np.ndarray,
     adapter: InsightFaceAdapter,
     min_face_size: int,
-) -> tuple[list[object], np.ndarray | None, str]:
-    """Phat hien mat va tra embedding neu chi co mot mat hop le."""
+    liveness_threshold: float,
+) -> tuple[list[object], np.ndarray | None, str, float | None]:
+    """Chi tra embedding khi mot khuon mat that vuot qua moi kiem tra."""
     faces = adapter.app.get(frame)
     valid_embedding: np.ndarray | None = None
+    live_score: float | None = None
 
     if len(faces) == 0:
         status = "LOCKED - no face detected"
@@ -261,11 +310,18 @@ def analyze_frame(
         status = f"LOCKED - {len(faces)} faces detected; keep only one"
     else:
         face = faces[0]
-        is_valid, status = validate_face_position(face, frame.shape, min_face_size)
-        if is_valid:
-            valid_embedding = np.asarray(face.normed_embedding, dtype=np.float32).copy()
+        is_live, live_score, status = evaluate_liveness(face, liveness_threshold)
+        if is_live:
+            is_valid, status = validate_face_position(face, frame.shape, min_face_size)
+            if is_valid:
+                raw_embedding = getattr(face, "normed_embedding", None)
+                if raw_embedding is None:
+                    status = "LOCKED - recognition blocked after liveness check"
+                else:
+                    valid_embedding = np.asarray(raw_embedding, dtype=np.float32).copy()
+                    status = f"LIVE - liveness score {live_score:.2f}"
 
-    return faces, valid_embedding, status
+    return faces, valid_embedding, status, live_score
 
 
 def validate_face_position(
@@ -374,8 +430,12 @@ def draw_alignment_guide(frame: np.ndarray) -> None:
     cv2.ellipse(frame, center, axes, 0, 0, 360, (180, 180, 180), 1, cv2.LINE_AA)
 
 
-def reset_session() -> tuple[Phase, list[np.ndarray], list[np.ndarray], np.ndarray | None]:
-    print("\n[1/2] Nguoi thu nhat: nhin thang vao webcam va nhan SPACE de bat dau quet.")
+def reset_session() -> (
+    tuple[Phase, list[np.ndarray], list[np.ndarray], np.ndarray | None]
+):
+    print(
+        "\n[1/2] Nguoi thu nhat: nhin thang vao webcam va nhan SPACE de bat dau quet."
+    )
     return Phase.ENROLL_READY, [], [], None
 
 
@@ -388,6 +448,14 @@ def main() -> int:
     if not (model_root / "models" / "buffalo_l").is_dir():
         print(f"Khong tim thay model buffalo_l trong: {model_root}", file=sys.stderr)
         return 2
+    liveness_model = model_root / "addons" / "liveness.onnx"
+    if not liveness_model.is_file():
+        print(
+            f"Khong tim thay model anti-spoof: {liveness_model}\n"
+            "Chay lenh ensure_addon trong HUONG_DAN_SETUP_THANH_VIEN.md.",
+            file=sys.stderr,
+        )
+        return 2
 
     print(
         "Dang khoi tao InsightFace "
@@ -395,13 +463,21 @@ def main() -> int:
         f"detector {args.det_size}x{args.det_size}, "
         f"{args.inference_fps:g} inference FPS)..."
     )
-    print("Luu y: ban thu nay chua co liveness/anti-spoofing.")
+    print(
+        "Anti-spoof bat buoc: "
+        f"threshold={args.liveness_threshold:.2f}, "
+        f"can {args.ready_frames} frame song lien tiep."
+    )
     try:
         adapter = initialize_adapter(
-            model_root, args.det_size, args.cpu_threads, args.provider
+            model_root,
+            args.det_size,
+            args.cpu_threads,
+            args.provider,
+            args.liveness_threshold,
         )
     except Exception:
-        logging.exception("Khoi tao InsightFace that bai")
+        LOGGER.exception("Khoi tao InsightFace that bai")
         print("Khoi tao InsightFace that bai. Xem log phia tren.", file=sys.stderr)
         return 2
 
@@ -427,6 +503,7 @@ def main() -> int:
     last_inference_at = 0.0
     faces: list[object] = []
     embedding: np.ndarray | None = None
+    liveness_score: float | None = None
     face_status = "Waiting for face analysis..."
     valid_streak = 0
     capture_ready = False
@@ -443,8 +520,11 @@ def main() -> int:
             now = time.perf_counter()
             did_inference = False
             if phase != Phase.RESULT and now - last_inference_at >= inference_interval:
-                faces, embedding, face_status = analyze_frame(
-                    clean_frame, adapter, args.min_face_size
+                faces, embedding, face_status, liveness_score = analyze_frame(
+                    clean_frame,
+                    adapter,
+                    args.min_face_size,
+                    args.liveness_threshold,
                 )
                 last_inference_at = time.perf_counter()
                 did_inference = True
@@ -468,7 +548,11 @@ def main() -> int:
                 elif phase in (Phase.ENROLL_CAPTURE, Phase.VERIFY_CAPTURE):
                     face_status = "SCANNING - keep this position"
 
-            if phase == Phase.ENROLL_CAPTURE and did_inference and embedding is not None:
+            if (
+                phase == Phase.ENROLL_CAPTURE
+                and did_inference
+                and embedding is not None
+            ):
                 enroll_samples.append(embedding)
                 if len(enroll_samples) >= args.samples:
                     enrolled_template = make_template(enroll_samples)
@@ -481,12 +565,17 @@ def main() -> int:
                     )
                     faces = []
                     embedding = None
+                    liveness_score = None
                     valid_streak = 0
                     capture_ready = False
                     face_status = "LOCKED - change to the second person"
                     last_inference_at = 0.0
 
-            elif phase == Phase.VERIFY_CAPTURE and did_inference and embedding is not None:
+            elif (
+                phase == Phase.VERIFY_CAPTURE
+                and did_inference
+                and embedding is not None
+            ):
                 verify_samples.append(embedding)
                 if len(verify_samples) >= args.samples:
                     assert enrolled_template is not None
@@ -546,7 +635,15 @@ def main() -> int:
             put_lines(frame, [face_status], origin_y=90, color=status_color)
             put_lines(
                 frame,
-                [f"Provider: {runtime_provider}"],
+                [
+                    f"Provider: {runtime_provider}",
+                    "Liveness: "
+                    + (
+                        f"{liveness_score:.2f} / {args.liveness_threshold:.2f}"
+                        if liveness_score is not None
+                        else "waiting"
+                    ),
+                ],
                 origin_y=120,
                 color=(220, 220, 220),
             )
@@ -562,23 +659,35 @@ def main() -> int:
             if key in (ord("q"), 27):
                 break
             if key == ord("r"):
-                phase, enroll_samples, verify_samples, enrolled_template = reset_session()
+                phase, enroll_samples, verify_samples, enrolled_template = (
+                    reset_session()
+                )
                 result_text = ""
                 result_score = 0.0
                 last_inference_at = 0.0
                 faces = []
                 embedding = None
+                liveness_score = None
                 face_status = "Waiting for face analysis..."
                 valid_streak = 0
                 capture_ready = False
                 continue
-            if key == 32:
+            if key == 32:  # noqa: SIM102 - tach xu ly SPACE de de doc state machine
                 if phase in (Phase.ENROLL_READY, Phase.VERIFY_READY):
                     # Kiem tra lai frame sach ngay luc bam phim, khong tin vao
                     # ket qua cache neu nguoi dung vua di chuyen ra khoi khung.
-                    current_faces, current_embedding, current_status = analyze_frame(
-                        clean_frame, adapter, args.min_face_size
+                    (
+                        current_faces,
+                        current_embedding,
+                        current_status,
+                        current_liveness_score,
+                    ) = analyze_frame(
+                        clean_frame,
+                        adapter,
+                        args.min_face_size,
+                        args.liveness_threshold,
                     )
+                    liveness_score = current_liveness_score
                     if current_embedding is None:
                         faces = current_faces
                         embedding = None
