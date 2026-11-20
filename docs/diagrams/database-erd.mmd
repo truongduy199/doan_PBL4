@@ -1,1 +1,154 @@
-﻿erDiagram\n  PARKING_SESSIONS ||--o| FACE_TEMPLATES : has\n  PARKING_SESSIONS ||--o{ SYSTEM_EVENTS : logs\n  PARKING_SLOTS ||--o{ PARKING_SESSIONS : assigns
+erDiagram
+    USERS {
+        bigint_unsigned user_id PK
+        varchar(100) username UK
+        varchar(255) password_hash
+        varchar(150) display_name
+        varchar(20) role "user | admin"
+        varchar(20) status "Active | Disabled"
+        datetime(3) created_at
+        datetime(3) updated_at
+    }
+
+    VEHICLES {
+        bigint_unsigned vehicle_id PK
+        bigint_unsigned user_id FK
+        varchar(20) plate_number UK "Normalized VN Plate"
+        varchar(20) status "Active | Disabled"
+        datetime(3) created_at
+        datetime(3) updated_at
+    }
+
+    USER_FACE_TEMPLATES {
+        bigint_unsigned template_id PK
+        bigint_unsigned user_id FK
+        blob embedding_blob "AES-256-GCM encrypted 512-D"
+        smallint_unsigned embedding_size "512"
+        varchar(20) embedding_dtype "float32"
+        varchar(100) model_id
+        varchar(100) model_version
+        varchar(50) config_version
+        float quality_score
+        varchar(30) liveness_status "Passed|Failed|Error|Unavailable|Not_used"
+        float liveness_score
+        varchar(50) key_version
+        json encryption_metadata
+        varchar(20) status "Active | Replaced | Revoked"
+        datetime(3) created_at
+        datetime(3) revoked_at
+        bigint_unsigned active_user_id UK "Generated: Active -> user_id"
+    }
+
+    PARKING_SLOTS {
+        varchar(10) slot_id PK "A1 | A2 | B1 | B2"
+        varchar(50) sensor_id UK "IR_A1 | IR_A2 | IR_B1 | IR_B2"
+        varchar(20) physical_status "Free | Occupied | Unknown | Fault"
+        char(36) active_booking_id FK,UK
+        char(36) reserved_session_id FK,UK
+        varchar(64) last_boot_id
+        bigint_unsigned last_sequence
+        datetime(3) last_seen_at
+        datetime(3) updated_at
+    }
+
+    BOOKINGS {
+        char(36) booking_id PK
+        bigint_unsigned user_id FK
+        bigint_unsigned vehicle_id FK
+        varchar(10) slot_id FK
+        varchar(30) status "Reserved|Checkin_pending|Checked_in|Completed|Expired|Cancelled"
+        datetime(3) created_at
+        datetime(3) expires_at "created_at + 60m"
+        datetime(3) checkin_started_at
+        datetime(3) checked_in_at
+        datetime(3) completed_at
+        datetime(3) cancelled_at
+        char(36) checkin_event_id FK
+        bigint_unsigned active_vehicle_booking UK "Generated: Reserved/Checkin_pending -> vehicle_id"
+    }
+
+    SESSIONS {
+        char(36) session_id PK
+        varchar(20) plate_number
+        bigint_unsigned user_id FK
+        bigint_unsigned vehicle_id FK
+        char(36) booking_id FK,UK
+        varchar(10) assigned_slot_id FK
+        varchar(30) status "Entry_pending|Active|Exit_pending|Closed|Cancelled"
+        varchar(40) parking_status "Not_arrived|Parking_pending|Parked_confirmed|Parking_review_required|Parking_timeout"
+        float ocr_confidence
+        datetime(3) entry_time
+        datetime(3) exit_time
+        datetime(3) created_at
+        datetime(3) updated_at
+        varchar(20) live_plate UK "Generated: Entry_pending/Active/Exit_pending -> plate_number"
+    }
+
+    SESSION_FACE_TEMPLATES {
+        bigint_unsigned template_id PK
+        char(36) session_id FK,UK
+        blob embedding_blob "AES-256-GCM encrypted 512-D"
+        smallint_unsigned embedding_size "512"
+        varchar(20) embedding_dtype "float32"
+        varchar(100) model_id
+        varchar(100) model_version
+        varchar(50) config_version
+        float quality_score
+        varchar(30) liveness_status
+        float liveness_score
+        varchar(50) key_version
+        json encryption_metadata
+        datetime(3) captured_at
+        datetime(3) expires_at
+    }
+
+    GATE_EVENTS {
+        char(36) event_id PK
+        varchar(10) gate_id "IN | OUT"
+        varchar(50) device_id
+        char(36) session_id FK
+        char(36) booking_id FK
+        varchar(30) decision "Pending|Approved|Denied|Review_required"
+        varchar(30) passage_status "Waiting|Confirmed|Cancelled|Unknown"
+        varchar(60) reason_code
+        varchar(30) liveness_status
+        float liveness_score
+        varchar(100) liveness_model_version
+        varchar(50) face_config_version
+        char(36) command_id
+        bigint_unsigned reviewer_id FK
+        text review_reason
+        datetime(3) created_at
+        datetime(3) decided_at
+        datetime(3) passed_at
+    }
+
+    PARKING_LOGS {
+        bigint_unsigned log_id PK
+        char(36) event_id FK
+        char(36) session_id FK
+        bigint_unsigned actor_user_id FK
+        varchar(50) event_type
+        varchar(60) reason_code
+        json details "Sanitized: no passwords/keys/vectors"
+        datetime(3) created_at
+    }
+
+    USERS ||--o{ VEHICLES : owns
+    USERS ||--o{ USER_FACE_TEMPLATES : enrolls
+    USERS ||--o{ BOOKINGS : creates
+    USERS ||--o{ SESSIONS : parks
+    USERS ||--o{ GATE_EVENTS : reviews
+    USERS ||--o{ PARKING_LOGS : acts
+    VEHICLES ||--o{ BOOKINGS : reserves
+    VEHICLES ||--o{ SESSIONS : enters
+    PARKING_SLOTS ||--o{ BOOKINGS : "historical slot_id"
+    PARKING_SLOTS |o--o| BOOKINGS : "active_booking_id"
+    PARKING_SLOTS |o--o| SESSIONS : "reserved_session_id"
+    PARKING_SLOTS ||--o{ SESSIONS : "assigned_slot_id"
+    BOOKINGS |o--o| SESSIONS : links
+    BOOKINGS |o--o| GATE_EVENTS : "checkin_event_id"
+    SESSIONS ||--o| SESSION_FACE_TEMPLATES : captures
+    SESSIONS ||--o{ GATE_EVENTS : triggers
+    SESSIONS ||--o{ PARKING_LOGS : logs
+    GATE_EVENTS ||--o{ PARKING_LOGS : audits

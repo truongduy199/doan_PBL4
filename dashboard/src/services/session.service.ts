@@ -1,33 +1,40 @@
-﻿import { ref, onValue } from "firebase/database";
-import { db } from "./firebase";
-import { ParkingSession } from "../shared/types";
+import { ApiClient } from "./api.client";
+import { BookingDTO, DeviceSensorHealth, SessionDTO } from "../shared/types";
 
-export const initialSessions: ParkingSession[] = [
-  { session_id: "SES-20260920-001", plate_number: "43A-123.45", slot_id: "A1", status: "ACTIVE", entry_time: "14:20:10" },
-  { session_id: "SES-20260920-002", plate_number: "92B-678.90", slot_id: "B1", status: "ACTIVE", entry_time: "14:42:05" },
-];
+export interface AdminSessionsResponse {
+  sessions: SessionDTO[];
+  count: number;
+  server_time: string;
+  server_time_vn: string;
+}
+
+export interface AdminBookingsResponse {
+  bookings: BookingDTO[];
+  count: number;
+  server_time: string;
+  server_time_vn: string;
+}
+
+export interface AdminDevicesResponse {
+  overall_status: "HEALTHY" | "DEGRADED_OR_STALE";
+  slot_stale_seconds: number;
+  sensors: DeviceSensorHealth[];
+  server_time: string;
+  server_time_vn: string;
+}
 
 export class SessionService {
-  static subscribeSessions(callback: (sessions: ParkingSession[]) => void): () => void {
-    if (!db) {
-      callback(initialSessions);
-      return () => {};
-    }
+  static async listAdminSessions(status?: string): Promise<AdminSessionsResponse> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return ApiClient.get<AdminSessionsResponse>(`/api/admin/sessions${qs}`);
+  }
 
-    try {
-      const sesRef = ref(db, "parking_sessions");
-      const unsubscribe = onValue(sesRef, (snapshot) => {
-        const data = snapshot.val();
-        if (data) {
-          callback(Object.values(data));
-        } else {
-          callback(initialSessions);
-        }
-      });
-      return unsubscribe;
-    } catch {
-      callback(initialSessions);
-      return () => {};
-    }
+  static async listAdminBookings(status?: string): Promise<AdminBookingsResponse> {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    return ApiClient.get<AdminBookingsResponse>(`/api/admin/bookings${qs}`);
+  }
+
+  static async getAdminDevices(): Promise<AdminDevicesResponse> {
+    return ApiClient.get<AdminDevicesResponse>("/api/admin/devices");
   }
 }

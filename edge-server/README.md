@@ -1,9 +1,13 @@
-﻿# Edge Server - Smart Parking PBL4
+# Smart Parking Edge Server (MySQL/InnoDB + FastAPI)
 
-Thành phần trung tâm của hệ thống Smart Parking, đảm nhiệm:
-1. Nhận diện biển số xe (OCR).
-2. Trích xuất và xác thực khuôn mặt 1:1 bằng InsightFace.
-3. Giám sát trạng thái 4 ô đỗ qua camera toàn cảnh.
-4. Điều khiển logic vào/ra qua máy trạng thái (State Machine).
-5. Giao tiếp hai chiều với ESP32 qua Serial (giao thức tin cậy ACK/checksum).
-6. Quản lý cơ sở dữ liệu SQLite cục bộ và hàng đợi outbox đồng bộ Firebase.
+## Các thành phần chính (Phần việc của Việt)
+- `migrations/001_mysql_tables.sql` & `002_mysql_foreign_keys.sql`: Schema MySQL/InnoDB 9 bảng chuẩn hóa, generated columns chống đặt trùng (`active_vehicle_booking`, `live_plate`, `active_user_id`), indexes và khóa ngoại.
+- `src/smart_parking/infrastructure/security/embedding_cipher.py`: Mã hóa & giải mã vector khuôn mặt 512-D `float32` chuẩn hóa L2 bằng AES-256-GCM (`EmbeddingCipher`).
+- `src/smart_parking/infrastructure/database/`: Bộ Repositories dùng `%s` parameterized queries + `UnitOfWork` với transaction ngắn, kiểm soát thứ tự khóa (`vehicles -> parking_slots -> bookings -> sessions -> gate_events`) và retry deadlock tự động.
+- `src/smart_parking/application/services/`:
+  - `AuthService`: Đăng nhập, xác thực JWT, phân quyền RBAC (`user` / `admin`).
+  - `SlotService`: Tính toán trạng thái hiển thị tổng hợp 4 ô đỗ (`A1`, `A2`, `B1`, `B2`) và che giấu thông tin nhạy cảm theo role.
+  - `BookingService`: Đặt giữ ô 60 phút, hủy đặt chỗ, đồng hồ đếm ngược theo `server_time`, worker xử lý hết hạn `expire_overdue_bookings`.
+  - `GateDataService` (`SessionDataService`): Cổng tích hợp giao dịch ngắn cho luồng cổng vào/ra, cảm biến IR 4 ô và duyệt thủ công của Duy & Nam.
+  - `RetentionService`: Xóa `session_face_templates` đã hết hạn của các phiên `Closed`/`Cancelled`.
+- `scripts/init_database.py` & `scripts/seed_demo_data.py`: Khởi tạo MySQL schema và seed dữ liệu demo idempotent.
