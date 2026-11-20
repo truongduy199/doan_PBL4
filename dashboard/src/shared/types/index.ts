@@ -126,6 +126,11 @@ export interface BookingDTO {
   can_cancel: boolean;
   server_time: string;
   server_time_vn: string;
+  session_id?: string | null;
+  session_status?: SessionStatus | null;
+  parking_status?: ParkingStatus | null;
+  entry_time?: string | null;
+  entry_time_vn?: string | null;
   username?: string;
   display_name?: string;
 }

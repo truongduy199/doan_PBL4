@@ -430,7 +430,21 @@ class BookingService:
             booking = tx.bookings.find_current_for_user(user_id)
             if booking is None:
                 return None
-            return self._booking_to_dto(booking, now_dt)
+            dto = self._booking_to_dto(booking, now_dt)
+            linked_session = tx.sessions.find_by_booking_id(booking.booking_id)
+            if linked_session is not None:
+                dto["session_id"] = linked_session.session_id
+                dto["session_status"] = linked_session.status.value
+                dto["parking_status"] = linked_session.parking_status.value
+                dto["entry_time"] = format_utc_iso(linked_session.entry_time)
+                dto["entry_time_vn"] = format_vn_iso(linked_session.entry_time)
+            else:
+                dto["session_id"] = None
+                dto["session_status"] = None
+                dto["parking_status"] = None
+                dto["entry_time"] = None
+                dto["entry_time_vn"] = None
+            return dto
 
         booking_dto = self.uow.run_transactional(_tx, readonly=True)
         return {

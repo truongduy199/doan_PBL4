@@ -129,6 +129,7 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
 
   const [lastUpdatedVn, setLastUpdatedVn] = useState<string>("—");
   const [countdownSeconds, setCountdownSeconds] = useState<number>(0);
+  const [parkedElapsedSeconds, setParkedElapsedSeconds] = useState<number>(0);
 
   // Loading, Error, Confirmation Modal & Driver Simulation states
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
@@ -245,6 +246,32 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
     return () => window.clearInterval(timer);
   }, [currentBooking, refreshAllData]);
 
+  // Live elapsed timer once the car has entered the parking lot (status === 'Checked_in' & entry_time set)
+  useEffect(() => {
+    if (
+      !currentBooking ||
+      currentBooking.status !== "Checked_in" ||
+      !currentBooking.entry_time
+    ) {
+      setParkedElapsedSeconds(0);
+      return;
+    }
+
+    const entryMs = Date.parse(currentBooking.entry_time);
+    if (Number.isNaN(entryMs)) {
+      setParkedElapsedSeconds(0);
+      return;
+    }
+
+    const updateElapsed = () => {
+      const nowServerMs = Date.now() + serverOffsetMsRef.current;
+      setParkedElapsedSeconds(Math.max(0, Math.floor((nowServerMs - entryMs) / 1000)));
+    };
+    updateElapsed();
+    const timer = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(timer);
+  }, [currentBooking]);
+
   const handleBookSlot = async () => {
     if (isBookingSubmitting || !selectedSlotId) return;
     if (!primaryVehicle) {
@@ -356,7 +383,8 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
   const getSlotVisualStyle = (
     displayStatus: DisplaySlotStatus,
     isSelected: boolean,
-    isMyBooking: boolean
+    isMyBooking: boolean,
+    isMySession: boolean
   ) => {
     switch (displayStatus) {
       case "AVAILABLE":
@@ -379,17 +407,25 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
         };
       case "ASSIGNED_PENDING":
         return {
-          cardClass: "border-sky-400 bg-sky-50/50 opacity-90",
+          cardClass: isMySession
+            ? "border-sky-500 ring-2 ring-sky-200 bg-sky-50 shadow-sm"
+            : "border-sky-400 bg-sky-50/50 opacity-90",
           badgeClass: "bg-sky-600 text-white",
           icon: "🚗",
-          hint: "Đang cấp cho xe qua cổng",
+          hint: isMySession
+            ? "Đang chờ xe của bạn tiến vào ô"
+            : "Đang cấp cho xe qua cổng",
         };
       case "OCCUPIED":
         return {
-          cardClass: "border-[#004b87] bg-blue-50/50 opacity-90",
+          cardClass: isMySession
+            ? "border-[#004b87] ring-2 ring-blue-300 bg-blue-50 shadow-sm"
+            : "border-[#004b87] bg-blue-50/50 opacity-90",
           badgeClass: "bg-[#004b87] text-white",
           icon: "🚙",
-          hint: "Đang có xe đỗ trong ô",
+          hint: isMySession
+            ? "✓ Xe của bạn đang đỗ trong ô này"
+            : "Đang có xe đỗ trong ô",
         };
       case "UNKNOWN_OR_FAULT":
       default:
@@ -425,15 +461,17 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
     const style = getSlotVisualStyle(
       slot.display_status,
       isSelected,
-      slot.is_my_booking
+      slot.is_my_booking,
+      slot.is_my_session
     );
     const canSelect = slot.is_bookable && !currentBooking;
+    const isMine = slot.is_my_booking || slot.is_my_session;
 
     return (
       <button
         key={slot.slot_id}
         type="button"
-        disabled={!canSelect && !slot.is_my_booking}
+        disabled={!canSelect && !isMine}
         onClick={() => {
           if (canSelect) {
             setSelectedSlotId(slot.slot_id);
@@ -465,10 +503,18 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
 
         {/* Middle Info: Own Vehicle Plate or Route Summary */}
         <div className="my-2.5">
-          {slot.is_my_booking && slot.plate_display ? (
-            <div className="inline-flex items-center gap-1.5 font-mono text-xs font-black bg-amber-200/90 text-slate-950 px-2.5 py-1 rounded-lg border border-amber-400">
-              <span>🚘</span>
-              <span>Xe của bạn: {slot.plate_display}</span>
+          {isMine && slot.plate_display ? (
+            <div
+              className={`inline-flex items-center gap-1.5 font-mono text-xs font-black px-2.5 py-1 rounded-lg border ${
+                slot.is_my_session
+                  ? "bg-blue-100 text-blue-950 border-blue-400"
+                  : "bg-amber-200/90 text-slate-950 border-amber-400"
+              }`}
+            >
+              <span>{slot.is_my_session ? "🚙" : "🚘"}</span>
+              <span>
+                {slot.is_my_session ? "Đang đỗ:" : "Xe của bạn:"} {slot.plate_display}
+              </span>
             </div>
           ) : isSelected ? (
             <div className="text-[11px] font-bold text-emerald-800 bg-emerald-100/90 px-2.5 py-1 rounded-lg border border-emerald-300">
@@ -646,21 +692,58 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
           </div>
         )}
 
-        {/* Active Booking Command Panel & Live Server-Synced Countdown */}
+        {/* Active Booking / Active Parked Session Command Panel */}
         {currentBooking && (
-          <section className="bg-gradient-to-br from-slate-900 via-[#003366] to-[#004b87] text-white rounded-2xl p-5 shadow-xl border-2 border-amber-400/90 space-y-4">
+          <section
+            className={`text-white rounded-2xl p-5 shadow-xl border-2 space-y-4 ${
+              currentBooking.status === "Checked_in" &&
+              currentBooking.parking_status === "Parked_confirmed"
+                ? "bg-gradient-to-br from-emerald-950 via-[#003c5f] to-[#004b87] border-emerald-400"
+                : "bg-gradient-to-br from-slate-900 via-[#003366] to-[#004b87] border-amber-400/90"
+            }`}
+          >
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="bg-amber-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                    Đặt Chỗ Đang Hiệu Lực
-                  </span>
+                  {currentBooking.status === "Reserved" && (
+                    <span className="bg-amber-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                      Đặt Chỗ Đang Hiệu Lực (Chờ xe đến cổng)
+                    </span>
+                  )}
+                  {currentBooking.status === "Checkin_pending" && (
+                    <span className="bg-sky-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider animate-pulse">
+                      Đang Đối Soát Biển Số &amp; Khuôn Mặt Tại Cổng Vào
+                    </span>
+                  )}
+                  {currentBooking.status === "Checked_in" &&
+                    currentBooking.parking_status === "Parked_confirmed" && (
+                      <span className="bg-emerald-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        ✓ Xe Đã Đỗ Ổn Định Trong Ô {currentBooking.slot_id}
+                      </span>
+                    )}
+                  {currentBooking.status === "Checked_in" &&
+                    currentBooking.parking_status === "Parking_pending" && (
+                      <span className="bg-sky-400 text-slate-950 text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        🚗 Đã Qua Cổng Vào • Đang Di Chuyển Vào Ô {currentBooking.slot_id}
+                      </span>
+                    )}
+                  {currentBooking.status === "Checked_in" &&
+                    (currentBooking.parking_status === "Parking_review_required" ||
+                      currentBooking.parking_status === "Parking_timeout") && (
+                      <span className="bg-rose-500 text-white text-[11px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                        ⚠️ Cần Kiểm Tra Vị Trí Đỗ ({currentBooking.parking_status})
+                      </span>
+                    )}
                   <span className="text-xs font-mono text-blue-200">
                     #{currentBooking.booking_id.slice(0, 8)}
                   </span>
                 </div>
                 <h2 className="text-xl sm:text-2xl font-black flex items-center gap-3 flex-wrap">
-                  <span>Ô Đã Đặt: {currentBooking.slot_id}</span>
+                  <span>
+                    {currentBooking.status === "Checked_in"
+                      ? `Đang Đỗ Tại Ô: ${currentBooking.slot_id}`
+                      : `Ô Đã Đặt: ${currentBooking.slot_id}`}
+                  </span>
                   <span className="text-sm font-mono bg-white/15 px-3 py-1 rounded-xl border border-white/20 text-amber-300">
                     {currentBooking.plate_display || currentBooking.plate_number}
                   </span>
@@ -672,20 +755,41 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
                       {DRIVER_ROUTES[currentBooking.slot_id].zoneLabel}
                     </strong>
                   </span>
-                  <span>
-                    Giờ đặt:{" "}
-                    <strong>{formatVnDateTime(currentBooking.created_at)}</strong>
-                  </span>
-                  <span>
-                    Hết hạn:{" "}
-                    <strong className="text-amber-300">
-                      {formatVnDateTime(currentBooking.expires_at)}
-                    </strong>
-                  </span>
+                  {currentBooking.status === "Checked_in" && currentBooking.entry_time ? (
+                    <>
+                      <span>
+                        Giờ qua cổng vào:{" "}
+                        <strong className="text-emerald-300">
+                          {formatVnDateTime(currentBooking.entry_time)}
+                        </strong>
+                      </span>
+                      <span>
+                        Trạng thái cảm biến đỗ:{" "}
+                        <strong className="text-white">
+                          {currentBooking.parking_status === "Parked_confirmed"
+                            ? "Đã xác nhận đỗ đúng ô"
+                            : currentBooking.parking_status}
+                        </strong>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>
+                        Giờ đặt:{" "}
+                        <strong>{formatVnDateTime(currentBooking.created_at)}</strong>
+                      </span>
+                      <span>
+                        Hết hạn:{" "}
+                        <strong className="text-amber-300">
+                          {formatVnDateTime(currentBooking.expires_at)}
+                        </strong>
+                      </span>
+                    </>
+                  )}
                 </div>
               </div>
 
-              {/* Countdown Timer + Progress + Primary Actions */}
+              {/* Countdown Timer (Reserved) OR Live Parked Elapsed Timer (Checked_in) + Actions */}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 {currentBooking.status === "Reserved" && (
                   <div
@@ -705,6 +809,22 @@ export const UserBookingPortal: React.FC<UserBookingPortalProps> = ({
                         className={`h-full transition-all duration-500 ${countdownBarClass}`}
                         style={{ width: `${countdownPct}%` }}
                       />
+                    </div>
+                  </div>
+                )}
+
+                {currentBooking.status === "Checked_in" && (
+                  <div className="bg-slate-950/90 border-2 border-emerald-400/70 rounded-2xl px-4 py-2.5 min-w-[165px] text-center text-emerald-300">
+                    <div className="text-[10px] uppercase tracking-wider text-slate-300 font-bold">
+                      Thời gian đang gửi xe
+                    </div>
+                    <div className="text-3xl font-black font-mono tracking-wider leading-tight mt-0.5">
+                      {formatCountdownMMSS(parkedElapsedSeconds)}
+                    </div>
+                    <div className="text-[10px] font-bold text-emerald-400 mt-1">
+                      {currentBooking.parking_status === "Parked_confirmed"
+                        ? "● Đã đỗ ổn định"
+                        : "● Đang di chuyển vào ô"}
                     </div>
                   </div>
                 )}
