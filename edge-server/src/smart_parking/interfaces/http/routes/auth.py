@@ -4,7 +4,11 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from smart_parking.interfaces.http._compat import APIRouter, Request, Response
-from smart_parking.interfaces.http.dependencies import get_container, get_current_user
+from smart_parking.interfaces.http.dependencies import (
+    extract_token_from_request,
+    get_container,
+    get_current_user,
+)
 
 router = APIRouter(prefix="/api", tags=["Auth & Profile"])
 
@@ -31,7 +35,13 @@ async def login(request: Request, response: Response) -> Dict[str, Any]:
 
 @router.post("/auth/logout")
 async def logout(request: Request, response: Response) -> Dict[str, Any]:
-    """Clear session cookie and confirm logout."""
+    """Revoke current Bearer/cookie token server-side, clear session cookie, and confirm logout."""
+    container = get_container(request)
+    try:
+        token = extract_token_from_request(request)
+        container.auth_service.revoke_token(token)
+    except Exception:
+        pass
     response.delete_cookie(key="access_token", path="/")
     return {"status": "logged_out", "message": "Đã đăng xuất phiên hiện tại."}
 

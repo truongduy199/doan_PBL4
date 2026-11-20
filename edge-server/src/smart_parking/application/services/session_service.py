@@ -144,6 +144,39 @@ class AdminQueryService:
             "server_time_vn": format_vn_iso(now_dt),
         }
 
+    def list_audit_logs(
+        self,
+        limit: int = 50,
+        session_id: Optional[str] = None,
+        now_utc: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        now_dt = now_utc or utc_now()
+
+        def _tx(tx) -> List[Dict[str, Any]]:
+            logs = tx.parking_logs.list_recent(limit=limit, session_id=session_id)
+            return [
+                {
+                    "log_id": lg.log_id,
+                    "event_id": lg.event_id,
+                    "session_id": lg.session_id,
+                    "actor_user_id": lg.actor_user_id,
+                    "event_type": lg.event_type,
+                    "reason_code": lg.reason_code,
+                    "details": lg.details,
+                    "created_at": format_utc_iso(lg.created_at),
+                    "created_at_vn": format_vn_iso(lg.created_at),
+                }
+                for lg in logs
+            ]
+
+        items = self.uow.run_transactional(_tx, readonly=True)
+        return {
+            "logs": items,
+            "count": len(items),
+            "server_time": format_utc_iso(now_dt),
+            "server_time_vn": format_vn_iso(now_dt),
+        }
+
 
 # Backwards-compatible alias
 SessionService = AdminQueryService

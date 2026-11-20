@@ -57,7 +57,7 @@ export const ReportsView: React.FC = () => {
       <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-xs text-slate-700 space-y-1.5">
         <p className="font-bold text-[#004b87]">📌 Ghi chú kiến trúc hệ thống:</p>
         <p>
-          • Dữ liệu Face Embedding 512 chiều chỉ được tạo và lưu tạm trong RAM máy Edge Server, không ghi xuống file và không gửi lên Firebase Cloud.
+          • Dữ liệu Face Embedding 512 chiều chuẩn hóa L2 được mã hóa AES-256-GCM (`EmbeddingCipher`) với khóa ngoài DB trước khi lưu trên MySQL cục bộ.
         </p>
         <p>
           • Dashboard chỉ tạo bản ghi xác nhận duyệt (Review Request); Edge Server là đơn vị duy nhất gửi lệnh điều khiển mở barie qua cổng Serial.

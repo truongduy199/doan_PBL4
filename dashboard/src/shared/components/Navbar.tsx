@@ -103,7 +103,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
             <span className="text-slate-300">|</span>
             <span className="text-slate-600 font-medium">
-              Bảo mật Face: <strong>SQLite RAM Only</strong>
+              Bảo mật Face: <strong>MySQL AES-256-GCM</strong>
             </span>
           </div>
         </div>

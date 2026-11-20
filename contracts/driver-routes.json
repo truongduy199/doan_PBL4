@@ -1,0 +1,66 @@
+{
+  "version": "1.0.0",
+  "description": "Canonical floor-plan route definitions for the First-Person Driver Navigation simulation (A1, A2, B1, B2). Pure UI geometry; no GPS, no hardware barrier commands, no DB mutations.",
+  "routes": {
+    "A1": {
+      "slotId": "A1",
+      "row": "A",
+      "wing": "LEFT",
+      "zoneLabel": "Dãy A • Cánh Trái (Gần Cổng Vào)",
+      "turnDirection": "LEFT",
+      "passesRowA": false,
+      "distanceMeters": 12,
+      "steeringPeakDeg": -75,
+      "turnLabelVi": "Tiến vào Dãy A, bật xi-nhan và đánh lái RẼ TRÁI vào ô A1",
+      "hudStage2": "Tiến thẳng 12m qua barie dọc làn trung tâm tới điểm rẽ Dãy A",
+      "hudStage3": "Bật xi-nhan TRÁI, đánh vô lăng -75° rẽ vào khoang đỗ A1",
+      "radarWaypoints": [[100, 178], [100, 118], [46, 118]],
+      "targetBay": { "cx": 46, "cy": 118 }
+    },
+    "A2": {
+      "slotId": "A2",
+      "row": "A",
+      "wing": "RIGHT",
+      "zoneLabel": "Dãy A • Cánh Phải (Gần Cổng Vào)",
+      "turnDirection": "RIGHT",
+      "passesRowA": false,
+      "distanceMeters": 12,
+      "steeringPeakDeg": 75,
+      "turnLabelVi": "Tiến vào Dãy A, bật xi-nhan và đánh lái RẼ PHẢI vào ô A2",
+      "hudStage2": "Tiến thẳng 12m qua barie dọc làn trung tâm tới điểm rẽ Dãy A",
+      "hudStage3": "Bật xi-nhan PHẢI, đánh vô lăng +75° rẽ vào khoang đỗ A2",
+      "radarWaypoints": [[100, 178], [100, 118], [154, 118]],
+      "targetBay": { "cx": 154, "cy": 118 }
+    },
+    "B1": {
+      "slotId": "B1",
+      "row": "B",
+      "wing": "LEFT",
+      "zoneLabel": "Dãy B • Cánh Trái (Phía Trong Bãi)",
+      "turnDirection": "LEFT",
+      "passesRowA": true,
+      "distanceMeters": 24,
+      "steeringPeakDeg": -75,
+      "turnLabelVi": "Đi qua Dãy A, bật xi-nhan và đánh lái RẼ TRÁI vào ô B1",
+      "hudStage2": "Tiến thẳng 24m qua Dãy A (A1/A2) để vào sâu khu vực Dãy B",
+      "hudStage3": "Bật xi-nhan TRÁI, đánh vô lăng -75° rẽ vào khoang đỗ B1",
+      "radarWaypoints": [[100, 178], [100, 58], [46, 58]],
+      "targetBay": { "cx": 46, "cy": 58 }
+    },
+    "B2": {
+      "slotId": "B2",
+      "row": "B",
+      "wing": "RIGHT",
+      "zoneLabel": "Dãy B • Cánh Phải (Phía Trong Bãi)",
+      "turnDirection": "RIGHT",
+      "passesRowA": true,
+      "distanceMeters": 24,
+      "steeringPeakDeg": 75,
+      "turnLabelVi": "Đi qua Dãy A, bật xi-nhan và đánh lái RẼ PHẢI vào ô B2",
+      "hudStage2": "Tiến thẳng 24m qua Dãy A (A1/A2) để vào sâu khu vực Dãy B",
+      "hudStage3": "Bật xi-nhan PHẢI, đánh vô lăng +75° rẽ vào khoang đỗ B2",
+      "radarWaypoints": [[100, 178], [100, 58], [154, 58]],
+      "targetBay": { "cx": 154, "cy": 58 }
+    }
+  }
+}

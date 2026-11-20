@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 from urllib.parse import parse_qs, urlsplit
 
 from smart_parking.domain.exceptions import DomainException
@@ -27,13 +28,39 @@ from smart_parking.interfaces.http.routes import (
     reviews,
     slots,
 )
+from smart_parking.workers.retention_worker import BookingExpiryAndRetentionWorker
 
 
-def create_app(container: Optional[AppContainer] = None) -> FastAPI:
-    """Create and configure the FastAPI application with all REST and Realtime routes."""
+def create_app(
+    container: Optional[AppContainer] = None,
+    enable_background_worker: bool = True,
+) -> FastAPI:
+    """Create and configure the FastAPI application with all REST, Realtime routes, and Expiry Worker."""
+
+    @asynccontextmanager
+    async def _lifespan(target_app: FastAPI) -> AsyncIterator[None]:
+        worker: Optional[BookingExpiryAndRetentionWorker] = None
+        if enable_background_worker:
+            app_container = getattr(target_app.state, "container", None)
+            if app_container is None:
+                app_container = build_container()
+                target_app.state.container = app_container
+            worker = BookingExpiryAndRetentionWorker(
+                booking_service=app_container.booking_service,
+                retention_service=app_container.retention_service,
+                interval_seconds=app_container.settings.expiry_worker_interval_seconds,
+            )
+            worker.start()
+        try:
+            yield
+        finally:
+            if worker is not None:
+                await worker.stop()
+
     app = FastAPI(
         title="Smart Parking PBL4 Edge API (MySQL/InnoDB)",
         version="0.2.0",
+        lifespan=_lifespan if HAS_FASTAPI else None,
     )
     if container is not None:
         app.state.container = container

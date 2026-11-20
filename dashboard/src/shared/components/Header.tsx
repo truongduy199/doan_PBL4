@@ -55,8 +55,8 @@ export const Header: React.FC = () => {
             </div>
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1.5 rounded-lg">
               <span className="w-2 h-2 rounded-full bg-sky-500"></span>
-              <span className="font-semibold text-slate-700">Firebase:</span>
-              <span className="text-sky-700 font-bold">Đã đồng bộ</span>
+              <span className="font-semibold text-slate-700">MySQL/InnoDB:</span>
+              <span className="text-sky-700 font-bold">Đã kết nối</span>
             </div>
           </div>
 

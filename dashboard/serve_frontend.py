@@ -22,6 +22,7 @@ _MODULE_ORDER = [
     _SRC_DIR / "services" / "parking.service.ts",
     _SRC_DIR / "services" / "session.service.ts",
     _SRC_DIR / "services" / "review.service.ts",
+    _SRC_DIR / "features" / "user-portal" / "driverRoutes.ts",
     _SRC_DIR / "features" / "user-portal" / "FirstPersonDriverModal.tsx",
     _SRC_DIR / "features" / "auth" / "LoginPage.tsx",
     _SRC_DIR / "features" / "user-portal" / "UserBookingPortal.tsx",
@@ -39,12 +40,12 @@ def _transform_ts_module(source: str) -> str:
         flags=re.MULTILINE,
     )
     cleaned = cleaned.replace(
-        "(import.meta.env.VITE_API_BASE_URL as string | undefined)",
-        '("http://127.0.0.1:8000" as string | undefined)',
+        "import.meta.env.VITE_API_BASE_URL",
+        '"http://127.0.0.1:8000"',
     )
     cleaned = cleaned.replace(
-        "(import.meta.env.VITE_WS_URL as string | undefined)",
-        '("ws://127.0.0.1:8000/api/ws" as string | undefined)',
+        "import.meta.env.VITE_WS_URL",
+        '"ws://127.0.0.1:8000/api/ws"',
     )
     cleaned = re.sub(
         r"^\s*export\s+(interface|type|const|class|function)\b",

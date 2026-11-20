@@ -76,3 +76,14 @@ async def get_admin_devices(request: Request) -> Dict[str, Any]:
     require_admin_user(request)
     container = get_container(request)
     return container.slot_service.get_admin_devices_health()
+
+
+@router.get("/logs")
+async def list_admin_logs(request: Request) -> Dict[str, Any]:
+    """Return recent sanitized audit logs from `parking_logs` for Admin Dashboard."""
+    require_admin_user(request)
+    container = get_container(request)
+    qp = request.query_params
+    limit = int(qp.get("limit", 50))
+    session_id = qp.get("session_id") or None
+    return container.admin_query_service.list_audit_logs(limit=limit, session_id=session_id)

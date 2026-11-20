@@ -1,6 +1,7 @@
 """Booking Service: 60-minute slot reservation, cancellation, expiry worker, and history."""
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
@@ -43,8 +44,9 @@ class BookingService:
         self.uow = uow
         self.event_bus = event_bus or RealtimeEventBus()
         self.settings = settings or get_settings()
-        # In-memory idempotency cache mapping (user_id, idempotency_key) -> booking_id
+        # Thread-safe idempotency cache mapping (user_id, idempotency_key) -> booking_id
         self._idempotency_keys: Dict[tuple[int, str], str] = {}
+        self._idempotency_lock = threading.Lock()
 
     def create_booking(
         self,
@@ -71,8 +73,10 @@ class BookingService:
         ttl_minutes = self.settings.booking_ttl_minutes
 
         # Check idempotency key before starting a new write
-        if idempotency_key:
-            cached_booking_id = self._idempotency_keys.get((int(user_id), idempotency_key.strip()))
+        clean_idem_key = idempotency_key.strip() if idempotency_key else None
+        if clean_idem_key:
+            with self._idempotency_lock:
+                cached_booking_id = self._idempotency_keys.get((int(user_id), clean_idem_key))
             if cached_booking_id:
                 existing_dto = self.get_booking_detail(
                     booking_id=cached_booking_id,
@@ -199,9 +203,26 @@ class BookingService:
 
             return self._booking_to_dto(booking, now_dt)
 
-        result_dto = self.uow.run_transactional(_tx)
-        if idempotency_key:
-            self._idempotency_keys[(int(user_id), idempotency_key.strip())] = result_dto["booking_id"]
+        try:
+            result_dto = self.uow.run_transactional(_tx)
+        except Exception as exc:
+            errno = getattr(exc, "errno", None)
+            msg_low = str(exc).lower()
+            if errno == 1062 or "duplicate entry" in msg_low or "unique constraint failed" in msg_low:
+                if "active_vehicle" in msg_low:
+                    raise BookingConflictException(
+                        "Xe của bạn đã có một đặt chỗ đang hiệu lực.",
+                        reason_code="VEHICLE_ALREADY_HAS_ACTIVE_BOOKING",
+                    ) from exc
+                raise SlotNotAvailableException(
+                    f"Ô {clean_slot_id} vừa được đặt bởi người dùng khác.",
+                    reason_code="SLOT_ALREADY_RESERVED",
+                ) from exc
+            raise
+
+        if clean_idem_key:
+            with self._idempotency_lock:
+                self._idempotency_keys[(int(user_id), clean_idem_key)] = result_dto["booking_id"]
 
         # Broadcast realtime update AFTER transaction commit
         self.event_bus.publish(
@@ -261,6 +282,16 @@ class BookingService:
                         "booking_id": booking.booking_id,
                         "current_status": booking.status.value,
                         "checkin_event_id": booking.checkin_event_id,
+                    },
+                )
+
+            if booking.expires_at <= now_dt:
+                raise BookingConflictException(
+                    "Đặt chỗ đã quá thời hạn 60 phút, không thể hủy thủ công (hệ thống tự động chuyển Expired).",
+                    reason_code="BOOKING_ALREADY_EXPIRED",
+                    details={
+                        "booking_id": booking.booking_id,
+                        "expires_at": format_utc_iso(booking.expires_at),
                     },
                 )
 

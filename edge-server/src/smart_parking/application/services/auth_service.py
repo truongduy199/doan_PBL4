@@ -1,6 +1,9 @@
 """Authentication & RBAC Service for USER and ADMIN accounts."""
 from __future__ import annotations
 
+import hashlib
+import threading
+import time
 from typing import Any, Dict, Optional
 
 from smart_parking.ai.plate.normalizer import PlateNormalizer
@@ -22,6 +25,48 @@ class AuthService:
     def __init__(self, uow: UnitOfWork, settings: Optional[Settings] = None) -> None:
         self.uow = uow
         self.settings = settings or get_settings()
+        # Maps sha256(token) -> exp_unix_ts for server-side Bearer revocation upon logout
+        self._revoked_tokens: Dict[str, int] = {}
+        self._revoked_lock = threading.Lock()
+
+    @staticmethod
+    def _token_fingerprint(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def revoke_token(self, token: Optional[str]) -> None:
+        """Invalidate a Bearer/cookie JWT immediately upon logout until its natural exp."""
+        if not token:
+            return
+        now_ts = int(time.time())
+        exp_ts = now_ts + int(self.settings.jwt_expire_hours * 3600)
+        try:
+            payload = decode_access_token(
+                token=token,
+                secret_key=self.settings.jwt_secret_key,
+                algorithm=self.settings.jwt_algorithm,
+            )
+            exp_ts = int(payload.get("exp", exp_ts))
+        except ValueError:
+            pass
+        fp = self._token_fingerprint(token)
+        with self._revoked_lock:
+            self._revoked_tokens[fp] = exp_ts
+            # Prune naturally expired entries
+            expired_keys = [k for k, v in self._revoked_tokens.items() if v < now_ts]
+            for k in expired_keys:
+                self._revoked_tokens.pop(k, None)
+
+    def _is_token_revoked(self, token: str) -> bool:
+        fp = self._token_fingerprint(token)
+        now_ts = int(time.time())
+        with self._revoked_lock:
+            exp_ts = self._revoked_tokens.get(fp)
+            if exp_ts is None:
+                return False
+            if exp_ts < now_ts:
+                self._revoked_tokens.pop(fp, None)
+                return False
+            return True
 
     def login(self, username: str, password: str) -> Dict[str, Any]:
         """Authenticate username/password against MySQL `users` table and issue JWT token."""
@@ -75,7 +120,12 @@ class AuthService:
         return profile
 
     def verify_token(self, token: str) -> Dict[str, Any]:
-        """Decode JWT token and verify the user still exists and is Active in MySQL."""
+        """Decode JWT token and verify it is not revoked and the user is Active in MySQL."""
+        if self._is_token_revoked(token):
+            raise AuthenticationException(
+                "Phiên đăng nhập đã đăng xuất. Vui lòng đăng nhập lại.",
+                reason_code="TOKEN_REVOKED",
+            )
         try:
             payload = decode_access_token(
                 token=token,

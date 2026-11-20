@@ -126,7 +126,7 @@ export const ParkingSlotsGrid: React.FC<ParkingSlotsGridProps> = ({
           <span>Bấm vào từng ô đỗ bất kỳ để xem <strong>thông số kỹ thuật & hình ảnh trích xuất</strong>.</span>
         </span>
         <span className="text-[11px] text-[#004b87] font-bold">
-          Firebase Realtime: OK
+          FastAPI + MySQL Realtime: OK
         </span>
       </div>
     </div>

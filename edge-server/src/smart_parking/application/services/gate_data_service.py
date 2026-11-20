@@ -1373,6 +1373,195 @@ class GateDataService:
 
         return self.uow.run_transactional(_tx)
 
+    def deny_gate_event(
+        self,
+        event_id: str,
+        gate_id: str,
+        device_id: str,
+        reason_code: str,
+        booking_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        liveness_status: Optional[str] = None,
+        liveness_score: Optional[float] = None,
+        now_utc: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Record an automated Gate IN/OUT denial (e.g. face mismatch, liveness failed).
+        If a booking was in 'Checkin_pending' without a created session, safely reverts it to
+        'Reserved' (if unexpired) or 'Expired' (releasing active_booking_id if expired).
+        """
+        now_dt = now_utc or utc_now()
+
+        def _tx(tx) -> Dict[str, Any]:
+            booking_meta = tx.bookings.get_by_id(booking_id) if booking_id else None
+            if booking_meta is not None:
+                tx.vehicles.lock_by_id_for_update(booking_meta.vehicle_id)
+                tx.slots.lock_by_id_for_update(booking_meta.slot_id)
+                booking = tx.bookings.lock_by_id_for_update(booking_meta.booking_id)
+                if booking is not None and booking.status == BookingStatus.CHECKIN_PENDING:
+                    if tx.sessions.find_by_booking_id(booking.booking_id) is None:
+                        if booking.expires_at > now_dt:
+                            tx.bookings.revert_checkin_pending_to_reserved(booking.booking_id)
+                        else:
+                            tx.bookings.revert_checkin_pending_to_reserved(booking.booking_id)
+                            tx.bookings.mark_expired(booking.booking_id)
+                            tx.slots.release_booking_if_matches(
+                                slot_id=booking.slot_id,
+                                booking_id=booking.booking_id,
+                                now_utc=now_dt,
+                            )
+
+            tx.gate_events.create_if_not_exists(
+                event_id=event_id,
+                gate_id=gate_id,
+                device_id=device_id,
+                session_id=session_id,
+                booking_id=booking_id,
+                decision=GateDecision.DENIED.value,
+                passage_status=PassageStatus.CANCELLED.value,
+                reason_code=reason_code,
+                liveness_status=liveness_status,
+                liveness_score=liveness_score,
+                created_at=now_dt,
+                decided_at=now_dt,
+            )
+            tx.gate_events.lock_by_id_for_update(event_id)
+            ev = tx.gate_events.update_decision(
+                event_id=event_id,
+                decision=GateDecision.DENIED.value,
+                reason_code=reason_code,
+                session_id=session_id,
+                booking_id=booking_id,
+                liveness_status=liveness_status,
+                liveness_score=liveness_score,
+                decided_at=now_dt,
+            )
+
+            tx.parking_logs.append(
+                event_type=LogEventType.GATE_IN.value if gate_id == GateId.IN.value else LogEventType.GATE_OUT.value,
+                reason_code=reason_code,
+                event_id=event_id,
+                session_id=session_id,
+                details={
+                    "gate_id": gate_id,
+                    "booking_id": booking_id,
+                    "decision": ev.decision.value,
+                },
+                created_at=now_dt,
+            )
+            return {
+                "event_id": ev.event_id,
+                "gate_id": ev.gate_id.value,
+                "decision": ev.decision.value,
+                "reason_code": ev.reason_code,
+                "booking_id": booking_id,
+                "session_id": session_id,
+            }
+
+        res = self.uow.run_transactional(_tx)
+        self.event_bus.publish("GATE_EVENT_DENIED", res, now_utc=now_dt)
+        return res
+
+    def cancel_unpassed_entry_session(
+        self,
+        event_id: str,
+        reason_code: str = "ERR_GATE_TIMEOUT",
+        now_utc: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Roll back an 'Entry_pending' session when Gate IN barrier opened but vehicle never passed:
+        - Transitions session to 'Cancelled', schedules retention expiry on session_face_templates.
+        - Releases parking_slots.reserved_session_id = NULL.
+        - Reverts linked booking to 'Reserved' (if unexpired) or 'Expired' (and releases active_booking_id).
+        """
+        now_dt = now_utc or utc_now()
+        retention_hours = self.settings.session_template_retention_hours
+
+        def _tx(tx) -> Dict[str, Any]:
+            ev_meta = tx.gate_events.get_by_id(event_id)
+            if ev_meta is None or ev_meta.session_id is None:
+                raise ResourceNotFoundException("Không tìm thấy sự kiện cổng vào.", reason_code="GATE_EVENT_NOT_FOUND")
+            sess_meta = tx.sessions.get_by_id(ev_meta.session_id)
+            if sess_meta is None:
+                raise SessionNotFoundException()
+            if sess_meta.status == SessionStatus.CANCELLED:
+                return {
+                    "event_id": event_id,
+                    "session_id": sess_meta.session_id,
+                    "session_status": sess_meta.status.value,
+                    "idempotent_replay": True,
+                }
+            if sess_meta.status != SessionStatus.ENTRY_PENDING:
+                raise GateOperationException(
+                    f"Chỉ có thể hủy phiên chưa qua cổng ở trạng thái Entry_pending (hiện tại: {sess_meta.status.value}).",
+                    reason_code="SESSION_NOT_ENTRY_PENDING",
+                )
+
+            if sess_meta.vehicle_id is not None:
+                tx.vehicles.lock_by_id_for_update(sess_meta.vehicle_id)
+            tx.slots.lock_by_id_for_update(sess_meta.assigned_slot_id)
+            booking = (
+                tx.bookings.lock_by_id_for_update(sess_meta.booking_id)
+                if sess_meta.booking_id
+                else None
+            )
+            session = tx.sessions.lock_by_id_for_update(sess_meta.session_id)
+            assert session is not None
+            tx.gate_events.lock_by_id_for_update(event_id)
+
+            tx.sessions.mark_cancelled(session.session_id, now_utc=now_dt)
+            tx.face_templates.set_session_template_expiry(
+                session_id=session.session_id,
+                expires_at=now_dt + timedelta(hours=retention_hours),
+            )
+            tx.slots.release_session_if_matches(
+                slot_id=session.assigned_slot_id,
+                session_id=session.session_id,
+                now_utc=now_dt,
+            )
+
+            if booking is not None:
+                if booking.expires_at > now_dt:
+                    tx.bookings.revert_checkin_pending_to_reserved(booking.booking_id)
+                else:
+                    tx.bookings.revert_checkin_pending_to_reserved(booking.booking_id)
+                    tx.bookings.mark_expired(booking.booking_id)
+                    tx.slots.release_booking_if_matches(
+                        slot_id=booking.slot_id,
+                        booking_id=booking.booking_id,
+                        now_utc=now_dt,
+                    )
+
+            tx.cursor.execute(
+                "UPDATE gate_events SET passage_status = 'Cancelled', reason_code = %s WHERE event_id = %s",
+                (reason_code, event_id),
+            )
+            tx.parking_logs.append(
+                event_type=LogEventType.GATE_IN.value,
+                reason_code=reason_code,
+                event_id=event_id,
+                session_id=session.session_id,
+                actor_user_id=session.user_id,
+                details={
+                    "assigned_slot_id": session.assigned_slot_id,
+                    "booking_id": session.booking_id,
+                    "action": "ENTRY_SESSION_CANCELLED_NO_PASSAGE",
+                },
+                created_at=now_dt,
+            )
+            return {
+                "event_id": event_id,
+                "session_id": session.session_id,
+                "assigned_slot_id": session.assigned_slot_id,
+                "session_status": SessionStatus.CANCELLED.value,
+                "idempotent_replay": False,
+            }
+
+        res = self.uow.run_transactional(_tx)
+        if not res.get("idempotent_replay"):
+            self.event_bus.publish("GATE_IN_ENTRY_CANCELLED", res, now_utc=now_dt)
+        return res
+
 
 # Alias as specified in prompt
 SessionDataService = GateDataService

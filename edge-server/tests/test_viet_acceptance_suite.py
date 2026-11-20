@@ -131,7 +131,7 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
             self.db = SandboxMySQLTestDatabase(self.settings)
 
         self.container: AppContainer = build_container(settings=self.settings, db=self.db)
-        self.app = create_app(container=self.container)
+        self.app = create_app(container=self.container, enable_background_worker=False)
         self.client = LocalTestClient(self.app)
 
         # Seed demo data + test fixtures (viet_user, admin, test_user_1, test_user_2, 4 slots Free)
@@ -803,6 +803,183 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
         )
         self.assertEqual(hist_res.status_code, 200)
         self.assertEqual(len(hist_res.json()["bookings"]), 2)
+
+    def test_logout_revokes_bearer_token_immediately(self) -> None:
+        """Verify POST /api/auth/logout revokes Bearer JWT server-side so subsequent calls return 401."""
+        user_client = LocalTestClient(self.app)
+        login_res = user_client.post(
+            "/api/auth/login",
+            json={"username": "viet_user", "password": "Viet@123"},
+        )
+        self.assertEqual(login_res.status_code, 200)
+        token = login_res.json()["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        me_before = user_client.get("/api/me", headers=headers)
+        self.assertEqual(me_before.status_code, 200)
+
+        logout_res = user_client.post("/api/auth/logout", headers=headers)
+        self.assertEqual(logout_res.status_code, 200)
+
+        me_after = user_client.get("/api/me", headers=headers)
+        self.assertEqual(me_after.status_code, 401)
+        self.assertEqual(me_after.json()["reason_code"], "TOKEN_REVOKED")
+
+    def test_idempotency_key_and_expired_booking_cancel_rejected(self) -> None:
+        """Verify X-Idempotency-Key deduplicates booking retries and expired bookings cannot be cancelled."""
+        t0 = utc_now()
+        self._refresh_all_slots_free(t0, sequence=120)
+        demo_user = self.seed_info["demo_user"]
+
+        idem_key = "idem-test-slot-A2-001"
+        b_first = self.container.booking_service.create_booking(
+            user_id=demo_user["user_id"],
+            vehicle_id=demo_user["vehicle_id"],
+            slot_id="A2",
+            idempotency_key=idem_key,
+            now_utc=t0,
+        )
+        b_retry = self.container.booking_service.create_booking(
+            user_id=demo_user["user_id"],
+            vehicle_id=demo_user["vehicle_id"],
+            slot_id="A2",
+            idempotency_key=idem_key,
+            now_utc=t0 + timedelta(seconds=2),
+        )
+        self.assertEqual(b_first["booking_id"], b_retry["booking_id"])
+
+        # Attempting to cancel after 61 minutes (already expired before worker ran) must raise 409 BOOKING_ALREADY_EXPIRED
+        with self.assertRaises(BookingConflictException) as ctx:
+            self.container.booking_service.cancel_booking(
+                booking_id=b_first["booking_id"],
+                requester_user_id=demo_user["user_id"],
+                now_utc=t0 + timedelta(minutes=61),
+            )
+        self.assertEqual(ctx.exception.reason_code, "BOOKING_ALREADY_EXPIRED")
+
+    def test_deny_gate_event_and_cancel_unpassed_entry_session(self) -> None:
+        """Verify Duy's gate failure/timeout rollback hooks keep booking & slot states clean."""
+        t0 = self.base_time
+        self._refresh_all_slots_free(t0, sequence=130)
+        demo_user = self.seed_info["demo_user"]
+
+        booking = self.container.booking_service.create_booking(
+            user_id=demo_user["user_id"],
+            vehicle_id=demo_user["vehicle_id"],
+            slot_id="B2",
+            now_utc=t0,
+        )
+        # Step 1: Begin check-in -> Checkin_pending, then AI denies (liveness failed) -> reverts to Reserved!
+        self.container.gate_data_service.begin_booking_checkin(
+            plate_number=demo_user["plate_number"],
+            event_id="EV-DENY-001",
+            now_utc=t0 + timedelta(minutes=2),
+        )
+        deny_res = self.container.gate_data_service.deny_gate_event(
+            event_id="EV-DENY-001",
+            gate_id="IN",
+            device_id="GATE_IN",
+            reason_code="ERR_FACE_LIVENESS_FAILED",
+            booking_id=booking["booking_id"],
+            liveness_status="Failed",
+            liveness_score=0.12,
+            now_utc=t0 + timedelta(minutes=2, seconds=2),
+        )
+        self.assertEqual(deny_res["decision"], "Denied")
+        b_after_deny = self.container.booking_service.get_booking_detail(
+            booking_id=booking["booking_id"],
+            requester_user_id=demo_user["user_id"],
+            now_utc=t0 + timedelta(minutes=2, seconds=3),
+        )
+        self.assertEqual(b_after_deny["status"], BookingStatus.RESERVED.value)
+
+        # Step 2: Retry check-in -> Approved Entry_pending, but car never drives through gate -> cancel_unpassed_entry_session!
+        self.container.gate_data_service.begin_booking_checkin(
+            plate_number=demo_user["plate_number"],
+            event_id="EV-TIMEOUT-002",
+            now_utc=t0 + timedelta(minutes=5),
+        )
+        self.container.gate_data_service.confirm_booking_entry_permission(
+            booking_id=booking["booking_id"],
+            event_id="EV-TIMEOUT-002",
+            session_face_template_data={
+                "embedding": make_deterministic_l2_vector(888),
+                "liveness_status": "Passed",
+                "liveness_score": 0.94,
+            },
+            now_utc=t0 + timedelta(minutes=5, seconds=1),
+        )
+        cancel_sess = self.container.gate_data_service.cancel_unpassed_entry_session(
+            event_id="EV-TIMEOUT-002",
+            reason_code="ERR_GATE_TIMEOUT",
+            now_utc=t0 + timedelta(minutes=6),
+        )
+        self.assertEqual(cancel_sess["session_status"], SessionStatus.CANCELLED.value)
+        # Booking reverts to Reserved (still within 60m) and slot.reserved_session_id is freed
+        b_after_timeout = self.container.booking_service.get_booking_detail(
+            booking_id=booking["booking_id"],
+            requester_user_id=demo_user["user_id"],
+            now_utc=t0 + timedelta(minutes=6, seconds=1),
+        )
+        self.assertEqual(b_after_timeout["status"], BookingStatus.RESERVED.value)
+
+    def test_driver_navigation_four_routes_and_no_hardware_side_effects(self) -> None:
+        """
+        Verify First-Person Driver Navigation geometry for all 4 slots (A1, A2, B1, B2),
+        ensure zero hardware/API side-effect calls in FirstPersonDriverModal.tsx,
+        and confirm serve_frontend.py compiles cleanly with zero leftover import.meta tokens.
+        """
+        import json
+
+        repo_root = _EDGE_ROOT.parent
+        routes_json_path = repo_root / "contracts" / "driver-routes.json"
+        self.assertTrue(routes_json_path.is_file())
+        routes_data = json.loads(routes_json_path.read_text(encoding="utf-8"))["routes"]
+        self.assertEqual(set(routes_data.keys()), {"A1", "A2", "B1", "B2"})
+
+        # Verify distinct accurate directions & distances for all 4 slots
+        self.assertEqual(routes_data["A1"]["row"], "A")
+        self.assertEqual(routes_data["A1"]["turnDirection"], "LEFT")
+        self.assertFalse(routes_data["A1"]["passesRowA"])
+        self.assertLess(routes_data["A1"]["steeringPeakDeg"], 0)
+
+        self.assertEqual(routes_data["A2"]["row"], "A")
+        self.assertEqual(routes_data["A2"]["turnDirection"], "RIGHT")
+        self.assertFalse(routes_data["A2"]["passesRowA"])
+        self.assertGreater(routes_data["A2"]["steeringPeakDeg"], 0)
+
+        self.assertEqual(routes_data["B1"]["row"], "B")
+        self.assertEqual(routes_data["B1"]["turnDirection"], "LEFT")
+        self.assertTrue(routes_data["B1"]["passesRowA"])
+        self.assertGreater(routes_data["B1"]["distanceMeters"], routes_data["A1"]["distanceMeters"])
+
+        self.assertEqual(routes_data["B2"]["row"], "B")
+        self.assertEqual(routes_data["B2"]["turnDirection"], "RIGHT")
+        self.assertTrue(routes_data["B2"]["passesRowA"])
+        self.assertGreater(routes_data["B2"]["distanceMeters"], routes_data["A2"]["distanceMeters"])
+
+        # Safety invariant: FirstPersonDriverModal.tsx MUST NOT invoke fetch, ApiClient, or any backend/hardware API
+        modal_src = (
+            repo_root / "dashboard" / "src" / "features" / "user-portal" / "FirstPersonDriverModal.tsx"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("fetch(", modal_src)
+        self.assertNotIn("ApiClient", modal_src)
+        self.assertNotIn("/api/", modal_src)
+        self.assertNotIn("geolocation", modal_src.lower())
+
+        # Verify serve_frontend.py assembles all TS/TSX modules cleanly with zero leftover import.meta
+        dashboard_dir = repo_root / "dashboard"
+        if str(dashboard_dir) not in sys.path:
+            sys.path.insert(0, str(dashboard_dir))
+        import serve_frontend
+
+        html = serve_frontend.build_spa_html()
+        self.assertIn("@babel/standalone@7.24.7", html)
+        self.assertNotIn("import.meta.env", html)
+        self.assertNotIn("allExtensions", html)
+        self.assertNotIn("isTSX", html)
+        self.assertIn("FirstPersonDriverModal", html)
+        self.assertIn("DRIVER_ROUTES", html)
 
 
 if __name__ == "__main__":
