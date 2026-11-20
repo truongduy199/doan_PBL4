@@ -81,7 +81,30 @@ Nếu muốn chạy tách riêng 2 cổng (phục vụ dev frontend hoặc khi m
 
 ---
 
-## 3. Hướng Dẫn Backup & Restore MySQL Trước Buổi Demo (`mysqldump`)
+## 3. Quy Trình Ghép & Test Khi Lắp Phần Cứng Thật (ESP32 + 4 Cảm Biến IR + Camera)
+
+*(Chi tiết kịch bản demo đầy đủ từng bước xem tại [docs/setup/demo-runbook.md](docs/setup/demo-runbook.md)).*
+
+1. **Bật ngưỡng kiểm tra cảm biến thật trong `edge-server/.env`:**
+   - Đặt `SLOT_STALE_SECONDS=30` (phát hiện mất tín hiệu cảm biến sau 30 giây), `DEMO_VEHICLE_PLATE` khớp biển số dán trên xe mô hình thật (ví dụ `43A12345`), và `SERIAL_PORT` đúng cổng COM của ESP32.
+2. **Nạp dữ liệu mẫu khuôn mặt thật (KHÔNG dùng `--init-slots-free`):**
+   ```powershell
+   edge-server\.venv\Scripts\python.exe edge-server\scripts\seed_demo_data.py --plate 43A12345 --embedding-file path\to\nam_driver_embedding.json
+   ```
+   Lúc đầu 4 ô sẽ ở trạng thái `Unknown` (`Chưa đủ dữ liệu / Lỗi cảm biến`) cho tới khi mạch ESP32 gửi gói IR thật đầu tiên.
+3. **Kiểm tra cảm biến IR thật (`T02`):**
+   - Cắm mạch ESP32 + chạy cầu nối phần cứng của Duy + chạy FastAPI cổng `8000`.
+   - Mở Admin (`http://127.0.0.1:8000/admin`) tab **📡 Cảm Biến IR & Thiết Bị**: 4 ô tự chuyển xanh **`Có thể đặt / Nhận xe`**. Che tay lên `IR_A1` → web tự nhảy **`Đang có xe`** qua WebSocket; rút nguồn ESP32 > 30 giây → web tự cảnh báo **`Chưa đủ dữ liệu / Lỗi cảm biến`**.
+4. **Test vòng đời trọn vẹn xe đặt trước (`T07` & `T15`):**
+   - **Web User (`viet_user`)** đặt giữ ô `B1` (60 phút) → xem mô phỏng góc nhìn người lái.
+   - Đưa xe mô hình `43A-123.45` + tài xế tới **Cổng Vào (`Gate IN`)** → AI nhận diện khớp → barie mở → xe qua cổng (`2. Đối soát cổng vào` → `3. Đã qua cổng vào`).
+   - Đặt xe vào ô **`B1`** che cảm biến `IR_B1` → Web User tự cập nhật **`✓ XE ĐÃ ĐỖ ỔN ĐỊNH TRONG Ô B1`** + đồng hồ tính giờ gửi xe, ô `B1` đổi xanh dương **`Đang có xe`**.
+   - Đưa xe rời ô `B1` tới **Cổng Ra (`Gate OUT`)** → ô `B1` vẫn được giữ an toàn cho tới khi qua hẳn cổng (`T15`) → đối chiếu khuôn mặt phiên lúc vào khớp → barie ra mở → xe rời bãi → phiên `Closed`, booking `Completed`, ô `B1` tự mở xanh trở lại!
+5. *(Tùy chọn khi chưa cắm phần cứng muốn tự test 4 bước trên laptop)*: Dùng script giả lập CLI `edge-server\scripts\simulate_gate_flow.py --step checkin|enter|park|exit`.
+
+---
+
+## 4. Hướng Dẫn Backup & Restore MySQL Trước Buổi Demo (`mysqldump`)
 
 ### 3.1. Sao lưu (Backup) toàn bộ Database ra file `.sql` trước buổi Demo
 Sau khi đã seed tài khoản, biển số xe mô hình và mẫu khuôn mặt tài xế chuẩn:
@@ -104,17 +127,20 @@ Sau khi đã seed tài khoản, biển số xe mô hình và mẫu khuôn mặt 
 
 ---
 
-## 4. Chạy Bộ Kiểm Thử Nghiệm Thu Tự Động (`T01`–`T20` & `VII.4`)
+## 5. Chạy Bộ Kiểm Thử Nghiệm Thu Tự Động (`T01`–`T20` & `VII.4`)
 
 ```powershell
 cd c:\PBL4\doan_PBL4
-python edge-server/tests/test_viet_acceptance_suite.py
+edge-server\.venv\Scripts\pytest.exe edge-server\tests\test_viet_acceptance_suite.py -v
 ```
 
 ---
 
-## 5. Tài Liệu Thiết Kế & Bàn Giao Chi Tiết
+## 6. Tài Liệu Thiết Kế & Bàn Giao Chi Tiết
 - [Sơ đồ ERD MySQL 9 bảng](docs/diagrams/database-erd.mmd)
 - [Từ điển dữ liệu & Quy tắc khóa giao dịch MySQL](docs/database/mysql-schema.md)
 - [Chính sách mã hóa AES-256-GCM & Lưu trữ mẫu khuôn mặt](docs/database/data-retention.md)
+- [Hợp đồng API, Xác thực & Tích hợp dữ liệu cho Duy & Nam](docs/protocols/api-and-integration-contract.md)
+- [Kịch bản chạy Demo & Test lắp phần cứng thật (Demo Runbook)](docs/setup/demo-runbook.md)
+- [Hướng dẫn chạy & test Web User / Admin Dashboard](dashboard/README.md)
 - [Danh mục kịch bản kiểm thử nghiệm thu](docs/testing/acceptance-scenarios.md)
