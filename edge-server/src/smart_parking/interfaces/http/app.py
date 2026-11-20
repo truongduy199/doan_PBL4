@@ -99,9 +99,14 @@ def create_app(
         from pathlib import Path
         from fastapi.responses import HTMLResponse  # type: ignore
 
-        _repo_root = Path(__file__).resolve().parents[4]
-        _serve_fe_path = _repo_root / "dashboard" / "serve_frontend.py"
-        if _serve_fe_path.is_file():
+        _serve_fe_path: Optional[Path] = None
+        for _ancestor in Path(__file__).resolve().parents:
+            _candidate = _ancestor / "dashboard" / "serve_frontend.py"
+            if _candidate.is_file():
+                _serve_fe_path = _candidate
+                break
+
+        if _serve_fe_path is not None:
             import importlib.util
 
             _spec = importlib.util.spec_from_file_location("serve_frontend", str(_serve_fe_path))

@@ -981,6 +981,13 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
         self.assertIn("FirstPersonDriverModal", html)
         self.assertIn("DRIVER_ROUTES", html)
 
+        # Verify unified FastAPI app mounts /, /login, /user, /admin returning HTTP 200 HTML
+        for spa_path in ("/", "/login", "/user", "/admin"):
+            spa_resp = self.client.get(spa_path)
+            self.assertEqual(spa_resp.status_code, 200, f"Expected 200 on unified SPA route {spa_path}")
+            body_text = getattr(spa_resp, "text", "") or str(spa_resp.json() if hasattr(spa_resp, "json") else "")
+            self.assertIn("@babel/standalone@7.24.7", body_text)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

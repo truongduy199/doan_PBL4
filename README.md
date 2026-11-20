@@ -53,24 +53,31 @@ python scripts/init_database.py
 
 ---
 
-## 2. Hướng Dẫn Chạy Backend FastAPI & Frontend Web User / Admin
+## 2. Hướng Dẫn Chạy Web User, Admin Dashboard & Backend FastAPI
 
-### Bước 2.1: Khởi chạy Backend FastAPI (`edge-server`)
+### Cách 1 (Khuyên dùng — Chỉ 1 lệnh duy nhất, KHÔNG cần cài Node.js)
+FastAPI Backend tại cổng `8000` đã tích hợp sẵn cả API lẫn giao diện React Web User (`/user`), trang Đăng nhập (`/login`) và Admin Dashboard (`/admin`):
+
 ```powershell
-cd c:\PBL4\doan_PBL4\edge-server
-pip install -e ".[dev]"
-uvicorn smart_parking.interfaces.http.app:app --host 127.0.0.1 --port 8000 --reload
+cd c:\PBL4\doan_PBL4
+edge-server\.venv\Scripts\uvicorn.exe smart_parking.interfaces.http.app:app --host 127.0.0.1 --port 8000
 ```
 
-### Bước 2.2: Khởi chạy Frontend React + Vite (`dashboard`)
-```powershell
-cd c:\PBL4\doan_PBL4\dashboard
-Copy-Item .env.example .env
-npm install
-npm run dev
-```
-- Mở trình duyệt **Microsoft Edge** tại `http://localhost:5173/login` -> Đăng nhập **`viet_user` (`Viet@123`)** để vào giao diện **Web User (`/user`)**: xem sơ đồ 4 ô đỗ, đặt giữ ô 60 phút, xem đồng hồ đếm ngược đồng bộ server, bấm **"Xem đường đi (Góc nhìn người lái)"** và xem lịch sử cá nhân.
-- Mở song song trình duyệt **Google Chrome** tại `http://localhost:5173/login` -> Đăng nhập **`admin` (`Admin@123`)** để vào giao diện **Admin Dashboard (`/admin`)**: giám sát chi tiết 4 ô, phiên xe, đặt chỗ, thiết bị cảm biến IR và duyệt thủ công (`Manual Review`).
+- Mở trình duyệt **Microsoft Edge** tại **`http://127.0.0.1:8000/login`** → Đăng nhập **`viet_user` (`Viet@123`)** để vào giao diện **Web User (`/user`)**: xem sơ đồ mặt bằng 2D 4 ô đỗ, đặt giữ ô 60 phút, xem đồng hồ đếm ngược đồng bộ server, bấm **"Xem đường đi (Góc nhìn người lái)"** và xem lịch sử cá nhân.
+- Mở song song trình duyệt **Google Chrome** tại **`http://127.0.0.1:8000/login`** → Đăng nhập **`admin` (`Admin@123`)** để vào giao diện **Admin Dashboard (`/admin`)**: giám sát chi tiết 4 ô, phiên xe, đặt chỗ, độ mới cảm biến IR và duyệt thủ công (`Manual Review`).
+- Tài liệu API tương tác (Swagger UI): **`http://127.0.0.1:8000/docs`**.
+
+### Cách 2 (Tách riêng Backend cổng `8000` và Frontend cổng `5173`)
+Nếu muốn chạy tách riêng 2 cổng (phục vụ dev frontend hoặc khi máy đã cài Node.js LTS):
+- **Terminal 1 (Backend FastAPI cổng `8000`):**
+  ```powershell
+  cd c:\PBL4\doan_PBL4
+  edge-server\.venv\Scripts\uvicorn.exe smart_parking.interfaces.http.app:app --host 127.0.0.1 --port 8000
+  ```
+- **Terminal 2 (Frontend cổng `5173`):**
+  - *Không cần Node.js:* `edge-server\.venv\Scripts\python.exe dashboard\serve_frontend.py`
+  - *Hoặc dùng Node.js + Vite:* `cd dashboard && Copy-Item .env.example .env && npm install && npm run dev`
+- Sau đó mở trình duyệt tại **`http://localhost:5173/login`** (chi tiết kịch bản test xem thêm tại [dashboard/README.md](dashboard/README.md)).
 
 ---
 
