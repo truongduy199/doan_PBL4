@@ -1,0 +1,2 @@
+include main.py pipeline.py requirements.txt TEST_RESULTS.md
+include samples/synthetic_plate.png
