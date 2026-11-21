@@ -146,6 +146,7 @@ class MySQLDatabase:
             charset="utf8mb4",
             collation="utf8mb4_unicode_ci",
             use_pure=True,
+            connection_timeout=self.settings.mysql_connection_timeout,
         )
 
     def get_connection(self) -> Any:

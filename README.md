@@ -1,5 +1,7 @@
 # Hệ Thống Bãi Đỗ Xe Thông Minh IoT (PBL4 — Smart Parking System)
 
+> **Tích hợp phần Duy (21/11/2026):** firmware hai ESP32-S3 dùng Wi-Fi HTTP/MQTT, không còn DevKit/Serial trong vận hành. Xem [hướng dẫn cấu hình, build và chạy](docs/setup/duy-handover.md), [hợp đồng thiết bị](docs/protocols/mqtt-http-device-contract.md) và [bảng chân mới](docs/setup/hardware-wiring.md). Broker, model AI và thông tin mạng phải được cấu hình trước khi demo thật.
+
 Kiến trúc hệ thống đã chốt ngày **18/11/2026**:
 - **MySQL 8.0 / InnoDB** duy nhất trên laptop làm nguồn chân lý dữ liệu (Single Source of Truth) cho toàn bộ 9 bảng nghiệp vụ (`users`, `vehicles`, `user_face_templates`, `parking_slots`, `bookings`, `sessions`, `session_face_templates`, `gate_events`, `parking_logs`).
 - **FastAPI REST & Realtime API (WebSocket `/api/ws` & SSE `/api/events/stream`)** tại `edge-server/`.
@@ -81,19 +83,19 @@ Nếu muốn chạy tách riêng 2 cổng (phục vụ dev frontend hoặc khi m
 
 ---
 
-## 3. Quy Trình Ghép & Test Khi Lắp Phần Cứng Thật (ESP32 + 4 Cảm Biến IR + Camera)
+## 3. Quy Trình Ghép & Test Khi Lắp Phần Cứng Thật (2 ESP32-S3 + 6 Cảm Biến IR + Camera)
 
 *(Chi tiết kịch bản demo đầy đủ từng bước xem tại [docs/setup/demo-runbook.md](docs/setup/demo-runbook.md)).*
 
 1. **Bật ngưỡng kiểm tra cảm biến thật trong `edge-server/.env`:**
-   - Đặt `SLOT_STALE_SECONDS=30` (phát hiện mất tín hiệu cảm biến sau 30 giây), `DEMO_VEHICLE_PLATE` khớp biển số dán trên xe mô hình thật (ví dụ `43A12345`), và `SERIAL_PORT` đúng cổng COM của ESP32.
+   - Đặt `SLOT_STALE_SECONDS=30` (phát hiện mất tín hiệu cảm biến sau 30 giây), `DEMO_VEHICLE_PLATE` khớp biển số dán trên xe mô hình thật (ví dụ `43A12345`), và cấu hình MQTT/khóa thiết bị theo tài liệu bàn giao Duy.
 2. **Nạp dữ liệu mẫu khuôn mặt thật (KHÔNG dùng `--init-slots-free`):**
    ```powershell
    edge-server\.venv\Scripts\python.exe edge-server\scripts\seed_demo_data.py --plate 43A12345 --embedding-file path\to\nam_driver_embedding.json
    ```
    Lúc đầu 4 ô sẽ ở trạng thái `Unknown` (`Chưa đủ dữ liệu / Lỗi cảm biến`) cho tới khi mạch ESP32 gửi gói IR thật đầu tiên.
 3. **Kiểm tra cảm biến IR thật (`T02`):**
-   - Cắm mạch ESP32 + chạy cầu nối phần cứng của Duy + chạy FastAPI cổng `8000`.
+   - Cấp nguồn hai S3, chạy broker cục bộ và FastAPI theo `scripts/start_duy.ps1`.
    - Mở Admin (`http://127.0.0.1:8000/admin`) tab **📡 Cảm Biến IR & Thiết Bị**: 4 ô tự chuyển xanh **`Có thể đặt / Nhận xe`**. Che tay lên `IR_A1` → web tự nhảy **`Đang có xe`** qua WebSocket; rút nguồn ESP32 > 30 giây → web tự cảnh báo **`Chưa đủ dữ liệu / Lỗi cảm biến`**.
 4. **Test vòng đời trọn vẹn xe đặt trước (`T07` & `T15`):**
    - **Web User (`viet_user`)** đặt giữ ô `B1` (60 phút) → xem mô phỏng góc nhìn người lái.

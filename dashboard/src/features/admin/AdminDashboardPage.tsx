@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ApiClient, ApiError } from "../../services/api.client";
 import { ParkingService } from "../../services/parking.service";
 import { ReviewService } from "../../services/review.service";
-import { SessionService } from "../../services/session.service";
+import { SessionService, GatewayStatus, AuditLogDTO } from "../../services/session.service";
 import {
   BookingDTO,
   DeviceSensorHealth,
@@ -11,6 +11,8 @@ import {
   SessionDTO,
   UserProfile,
 } from "../../shared/types";
+
+import { AppShell, Notice, StatusBadge, ParkingFloorPlan, SummaryStat, EmptyState, statusLabel } from "../../shared/components/ui";
 
 interface AdminDashboardPageProps {
   user: UserProfile;
@@ -36,7 +38,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "sessions" | "bookings" | "reviews" | "devices"
+    "overview" | "sessions" | "bookings" | "reviews" | "devices" | "logs"
   >("overview");
 
   const [slots, setSlots] = useState<ParkingSlotView[]>([]);
@@ -46,21 +48,29 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [reviews, setReviews] = useState<ManualReviewItem[]>([]);
   const [sensors, setSensors] = useState<DeviceSensorHealth[]>([]);
   const [overallDeviceStatus, setOverallDeviceStatus] = useState<string>("UNKNOWN");
+  const [gateway, setGateway] = useState<GatewayStatus | null>(null);
+  const [mqttConnected, setMqttConnected] = useState(false);
+  const [logs, setLogs] = useState<AuditLogDTO[]>([]);
+  const [pendingReview, setPendingReview] = useState<string | null>(null);
+  const [serverOffsetMs, setServerOffsetMs] = useState(0);
+  const [clockMs, setClockMs] = useState(Date.now());
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [actionIssue, setActionIssue] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [realtimeOnline, setRealtimeOnline] = useState<boolean>(false);
 
   const loadAdminData = useCallback(async () => {
     try {
-      const [slotsRes, sessRes, bookRes, revRes, devRes] = await Promise.all([
+      const [slotsRes, sessRes, bookRes, revRes, devRes, logRes] = await Promise.all([
         ParkingService.getSlots(),
         SessionService.listAdminSessions(),
         SessionService.listAdminBookings(),
         ReviewService.listAdminReviews(false),
         SessionService.getAdminDevices(),
+        SessionService.listAdminLogs(),
       ]);
       setSlots(slotsRes.slots);
       setAvailableCount(slotsRes.available_count);
@@ -69,12 +79,16 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
       setReviews(revRes.reviews);
       setSensors(devRes.sensors);
       setOverallDeviceStatus(devRes.overall_status);
+      setGateway(devRes.gateway || null);
+      setMqttConnected(devRes.mqtt?.connected === true);
+      setLogs(logRes.logs);
+      setServerOffsetMs(Date.parse(bookRes.server_time) - Date.now());
       setApiError(null);
     } catch (err) {
       if (err instanceof ApiError) {
-        setApiError(`[${err.reasonCode}] ${err.message}`);
+        setApiError(err.message);
       } else {
-        setApiError("Không thể kết nối tới FastAPI Backend để tải dữ liệu Quản trị.");
+        setApiError("Không thể kết nối máy chủ để cập nhật bãi đỗ.");
       }
     } finally {
       setIsLoading(false);
@@ -83,6 +97,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
 
   useEffect(() => {
     loadAdminData();
+    const poll = window.setInterval(loadAdminData, 5000);
+    const tick = window.setInterval(() => setClockMs(Date.now()), 1000);
+    return () => { window.clearInterval(poll); window.clearInterval(tick); };
   }, [loadAdminData]);
 
   useEffect(() => {
@@ -99,21 +116,30 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     eventId: string,
     action: "APPROVE" | "DENY"
   ) => {
-    const reason =
-      (reviewReasons[eventId] || "").trim() ||
-      (action === "APPROVE"
-        ? "Quản trị viên xác nhận hợp lệ cho phép qua cổng"
-        : "Quản trị viên từ chối qua cổng");
+    const reason = (reviewReasons[eventId] || "").trim();
+    if (!reason || pendingReview) return;
+    setPendingReview(eventId);
+    setActionFeedback(null);
+    setActionIssue(null);
+    setApiError(null);
     try {
-      await ReviewService.submitDecision(eventId, action, reason);
+      const decision = await ReviewService.submitDecision(eventId, action, reason);
+      if (decision.command_status === "PUBLISH_FAILED") {
+        setActionIssue("Đã lưu quyết định nhưng chưa gửi được lệnh tới thiết bị. Kiểm tra kết nối và tình trạng cổng trước khi thao tác tiếp.");
+        return;
+      }
       setActionFeedback(
-        `Đã ghi nhận quyết định ${action} cho sự kiện ${eventId} vào MySQL.`
+        action === "APPROVE" ? "Đã lưu quyết định cho phép. Theo dõi phản hồi tại mục Thiết bị." : "Đã ghi nhận quyết định từ chối."
       );
       await loadAdminData();
     } catch (err) {
       if (err instanceof ApiError) {
-        setApiError(`[${err.reasonCode}] ${err.message}`);
+        setApiError(err.message);
+      } else {
+        setApiError("Chưa xác nhận được quyết định. Tải lại dữ liệu để kiểm tra trước khi thử tiếp.");
       }
+    } finally {
+      setPendingReview(null);
     }
   };
 
@@ -124,442 +150,44 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     ["Reserved", "Checkin_pending"].includes(b.status)
   ).length;
 
-  return (
-    <div className="min-h-screen flex flex-col bg-slate-100 text-slate-800">
-      {/* Top Admin Header */}
-      <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-amber-400 text-slate-950 font-black flex flex-col items-center justify-center">
-              <span className="text-sm leading-none">PBL4</span>
-              <span className="text-[8px] font-bold mt-0.5">ADMIN</span>
-            </div>
-            <div>
-              <div className="text-[11px] uppercase tracking-wider text-amber-300 font-bold">
-                Trung Tâm Điều Hành Quản Trị • MySQL/InnoDB Single Source of Truth
-              </div>
-              <h1 className="text-base sm:text-lg font-extrabold">
-                Giám Sát 4 Ô Đỗ, Đặt Chỗ, Phiên Xe &amp; Duyệt Ngoại Lệ
-              </h1>
-            </div>
-          </div>
+  const navigation = <>{[
+    { id: "overview", label: "Tổng quan" }, { id: "sessions", label: "Lượt gửi xe" },
+    { id: "bookings", label: "Đặt chỗ" }, { id: "reviews", label: "Cần kiểm tra" },
+    { id: "devices", label: "Thiết bị" }, { id: "logs", label: "Nhật ký" },
+  ].map((tab) => <button key={tab.id} className={`nav-tab ${activeTab === tab.id ? "is-active" : ""}`} aria-current={activeTab === tab.id ? "page" : undefined} onClick={() => setActiveTab(tab.id as typeof activeTab)}>{tab.label}{tab.id === "reviews" && reviews.length > 0 && <span className="tab-count">{reviews.length}</span>}</button>)}</>;
+  const tabTitles: Record<string, string> = { overview: "Tình hình bãi đỗ", sessions: "Lượt gửi xe", bookings: "Đặt chỗ", reviews: "Các trường hợp cần kiểm tra", devices: "Thiết bị và kết nối", logs: "Nhật ký vận hành" };
+  const visibleSessions = activeTab === "overview" ? sessions.filter((session) => ["Entry_pending", "Active", "Exit_pending"].includes(session.status)).slice(0, 6) : sessions;
 
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl">
-              Realtime:{" "}
-              <strong className={realtimeOnline ? "text-emerald-400" : "text-amber-400"}>
-                {realtimeOnline ? "WebSocket Online" : "Polling"}
-              </strong>
-            </span>
-            <span className="text-xs bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-xl">
-              Cảm biến IR:{" "}
-              <strong
-                className={
-                  overallDeviceStatus === "HEALTHY"
-                    ? "text-emerald-400"
-                    : "text-rose-400"
-                }
-              >
-                {overallDeviceStatus}
-              </strong>
-            </span>
-            <div className="text-xs bg-blue-950 border border-blue-800 px-3 py-1.5 rounded-xl font-bold">
-              🛡️ {user.display_name} ({user.username})
-            </div>
-            <button
-              onClick={onLogout}
-              className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs transition cursor-pointer"
-            >
-              Đăng xuất
-            </button>
-          </div>
-        </div>
+  return <AppShell user={user} onLogout={onLogout} navigation={navigation}>
+    <div className="page-heading"><div><span className="eyebrow">Quản lý bãi đỗ</span><h1>{tabTitles[activeTab]}</h1><p>Theo dõi 4 ô đỗ và xử lý các lượt xe trong bãi.</p></div><div className="row"><span className="small muted">{realtimeOnline ? "Đang đồng bộ" : "Cập nhật mỗi 5 giây"}</span><button className="button" onClick={loadAdminData}>Làm mới</button></div></div>
+    {apiError && <Notice tone="error">{apiError} Dữ liệu hiển thị có thể chưa cập nhật.</Notice>}
+    {actionFeedback && <Notice tone="success" onClose={() => setActionFeedback(null)}>{actionFeedback}</Notice>}
+    {actionIssue && <Notice tone="error" onClose={() => setActionIssue(null)}>{actionIssue}</Notice>}
+    {isLoading && <Notice>Đang tải dữ liệu bãi đỗ…</Notice>}
+    <div className="summary-grid"><SummaryStat label="Ô có thể nhận xe" value={isLoading || apiError ? "—" : `${availableCount}/4`} detail="Theo trạng thái và quyền giữ ô" /><SummaryStat label="Xe đang trong lượt gửi" value={isLoading ? "—" : activeSessionsCount} detail="Gồm lượt đang qua cổng" /><SummaryStat label="Đặt chỗ đang giữ" value={isLoading ? "—" : activeBookingsCount} detail="Đang giữ hoặc đang đối soát" /><SummaryStat label="Cần kiểm tra" value={isLoading ? "—" : reviews.length} detail="Cổng vào, cổng ra và vị trí đỗ" /></div>
 
-        {/* Navigation Tabs */}
-        <nav className="bg-[#004b87] border-t border-blue-800">
-          <div className="max-w-7xl mx-auto px-4 flex items-center gap-1 overflow-x-auto text-xs font-bold uppercase">
-            {(
-              [
-                { id: "overview", label: "📊 Tổng Quan 4 Ô & Vận Hành" },
-                { id: "sessions", label: `🚗 Phiên Xe (${activeSessionsCount})` },
-                { id: "bookings", label: `📅 Đặt Chỗ (${activeBookingsCount})` },
-                { id: "reviews", label: `🔍 Duyệt Thủ Công (${reviews.length})` },
-                { id: "devices", label: "📡 Cảm Biến IR & Thiết Bị" },
-              ] as const
-            ).map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setActiveTab(t.id)}
-                className={`px-4 py-3 border-b-2 transition cursor-pointer whitespace-nowrap ${
-                  activeTab === t.id
-                    ? "bg-[#003366] text-white border-amber-400"
-                    : "border-transparent text-blue-100 hover:bg-[#003968]"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </nav>
-      </header>
+    {activeTab === "overview" && <div className="booking-layout"><section className="panel"><div className="panel-header"><h2>Sơ đồ bãi đỗ</h2><span className="small muted">A1 · A2 · B1 · B2</span></div><ParkingFloorPlan slots={slots} admin /></section>
+      <aside className="panel"><div className="panel-header"><h2>Tình trạng vận hành</h2></div><div className="panel-body stack"><div className="row spread"><span>Cảm biến ô đỗ</span><StatusBadge status={overallDeviceStatus === "HEALTHY" ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={overallDeviceStatus === "HEALTHY" ? "Dữ liệu hợp lệ" : "Cần kiểm tra"} /></div><div className="row spread"><span>Kết nối thiết bị</span><StatusBadge status={mqttConnected ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={mqttConnected ? "Đã kết nối" : "Chưa kết nối"} /></div><div className="section-rule" style={{ margin: 0 }} />
+        <p className="small muted">{reviews.length ? `Có ${reviews.length} trường hợp cần quản trị viên kiểm tra trước khi xử lý tiếp.` : "Chưa có trường hợp cần kiểm tra trong dữ liệu hiện tại."}</p>
+        <button className="button button-full" onClick={() => setActiveTab("reviews")}>Xem các trường hợp cần kiểm tra</button><button className="button button-quiet button-full" onClick={() => setActiveTab("devices")}>Xem tình trạng thiết bị</button>
+      </div></aside></div>}
 
-      <main className="max-w-7xl mx-auto px-4 py-6 flex-1 w-full space-y-6">
-        {apiError && (
-          <div
-            role="alert"
-            className="bg-rose-50 border-2 border-rose-500 text-rose-900 p-4 rounded-2xl text-xs font-bold flex items-center justify-between"
-          >
-            <span>🚨 Lỗi API / Dữ liệu: {apiError}</span>
-            <button
-              onClick={loadAdminData}
-              className="bg-rose-700 text-white px-3 py-1.5 rounded-xl"
-            >
-              Thử lại
-            </button>
-          </div>
-        )}
+    {(activeTab === "overview" || activeTab === "sessions") && <section className="panel"><div className="panel-header"><h2>{activeTab === "overview" ? "Lượt xe đang xử lý" : "Lượt gửi xe và lịch sử"}</h2><span className="small muted">{visibleSessions.length} lượt</span></div>{visibleSessions.length === 0 ? <EmptyState>Chưa có lượt gửi xe phù hợp.</EmptyState> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Biển số</th><th>Ô đỗ</th><th>Trạng thái</th><th>Vị trí đỗ</th><th>Vào bãi</th><th>Rời bãi</th></tr></thead><tbody>{visibleSessions.map((session) => <tr key={session.session_id}><td className="mono">{session.plate_display || session.plate_number}</td><td><strong>{session.assigned_slot_id}</strong></td><td><StatusBadge status={session.status} /></td><td>{statusLabel(session.parking_status)}</td><td>{formatAdminVnDateTime(session.entry_time)}</td><td>{formatAdminVnDateTime(session.exit_time)}</td></tr>)}</tbody></table></div>}</section>}
 
-        {actionFeedback && (
-          <div className="bg-emerald-50 border border-emerald-400 text-emerald-900 p-3.5 rounded-2xl text-xs font-bold flex items-center justify-between">
-            <span>✓ {actionFeedback}</span>
-            <button onClick={() => setActionFeedback(null)}>✕</button>
-          </div>
-        )}
+    {activeTab === "bookings" && <section className="panel"><div className="panel-header"><h2>Các lần đặt chỗ</h2><span className="small muted">Tối đa 100 bản ghi gần nhất</span></div>{bookings.length === 0 ? <EmptyState>Chưa có đặt chỗ được ghi nhận.</EmptyState> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Người đặt</th><th>Biển số</th><th>Ô đỗ</th><th>Trạng thái</th><th>Thời gian đặt</th><th>Giữ đến</th></tr></thead><tbody>{bookings.map((booking) => <tr key={booking.booking_id}><td>{booking.display_name || booking.username || `Tài khoản ${booking.user_id}`}</td><td className="mono">{booking.plate_display || booking.plate_number}</td><td><strong>{booking.slot_id}</strong></td><td><StatusBadge status={booking.status} /></td><td>{formatAdminVnDateTime(booking.created_at)}</td><td><div>{formatAdminVnDateTime(booking.expires_at)}</div>{booking.status === "Reserved" && <span className="small muted">Còn {Math.max(0, Math.ceil((Date.parse(booking.expires_at) - clockMs - serverOffsetMs) / 60000))} phút</span>}</td></tr>)}</tbody></table></div>}</section>}
 
-        {/* KPI Summary Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-            <div className="text-xs font-bold text-slate-500 uppercase">
-              Ô Đỗ Khả Dụng
-            </div>
-            <div className="text-3xl font-black text-emerald-700 mt-1">
-              {availableCount} <span className="text-sm font-medium text-slate-400">/ 4</span>
-            </div>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-            <div className="text-xs font-bold text-slate-500 uppercase">
-              Booking Đang Giữ Ô
-            </div>
-            <div className="text-3xl font-black text-amber-600 mt-1">
-              {activeBookingsCount}
-            </div>
-          </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-            <div className="text-xs font-bold text-slate-500 uppercase">
-              Phiên Xe Chưa Kết Thúc
-            </div>
-            <div className="text-3xl font-black text-[#004b87] mt-1">
-              {activeSessionsCount}
-            </div>
-          </div>
-          <div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-4 shadow-xs">
-            <div className="text-xs font-bold text-amber-900 uppercase">
-              Cần Duyệt Thủ Công
-            </div>
-            <div className="text-3xl font-black text-amber-800 mt-1">
-              {reviews.length}
-            </div>
-          </div>
-        </div>
+    {activeTab === "reviews" && <section className="panel"><div className="panel-header"><div><h2>Chờ quyết định</h2><p>Kiểm tra tình huống thực tế và ghi lý do trước khi xử lý.</p></div></div>{reviews.length === 0 ? <EmptyState>Không có trường hợp đang chờ kiểm tra.</EmptyState> : <div className="review-list">{reviews.map((review) => <article className="review-item" key={review.event_id}><div className="stack" style={{ gap: 9 }}><div className="row"><h3>{review.review_type === "PARKING_ANOMALY" ? "Kiểm tra vị trí đỗ" : `Kiểm tra cổng ${review.gate_id === "IN" ? "vào" : "ra"}`}</h3><StatusBadge status={review.decision} /></div><p><strong className="mono">{review.plate_display || review.plate_number || "Chưa xác định biển số"}</strong>{review.slot_id ? ` · Ô ${review.slot_id}` : ""}</p><span className="small muted">{formatAdminVnDateTime(review.created_at)} · {review.reason_code || "Chưa rõ nguyên nhân"}</span><span className="small mono muted" style={{ overflowWrap: "anywhere" }}>{review.event_id}</span></div>
+      <div className="review-actions"><label className="small" htmlFor={`reason-${review.event_id}`}>Lý do xử lý</label><input className="input" id={`reason-${review.event_id}`} placeholder="Nhập kết quả kiểm tra…" value={reviewReasons[review.event_id] || ""} onChange={(event) => setReviewReasons((previous) => ({ ...previous, [review.event_id]: event.target.value }))} /><div className="row"><button className="button button-primary" disabled={pendingReview !== null || !!apiError || !(reviewReasons[review.event_id] || "").trim()} onClick={() => handleReviewDecision(review.event_id, "APPROVE")}>{pendingReview === review.event_id ? "Đang xử lý…" : "Cho phép"}</button><button className="button" disabled={pendingReview !== null || !!apiError || !(reviewReasons[review.event_id] || "").trim()} onClick={() => handleReviewDecision(review.event_id, "DENY")}>Từ chối</button></div></div>
+    </article>)}</div>}</section>}
 
-        {/* 4 Slots Detailed Admin Grid (Always visible on Overview) */}
-        {(activeTab === "overview" || activeTab === "devices") && (
-          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <h2 className="text-base font-extrabold text-[#004b87] uppercase">
-              Trạng Thái Chi Tiết 4 Ô Đỗ (Quyền ADMIN - Hiển Thị Đầy Đủ)
-            </h2>
-            {isLoading ? (
-              <div className="py-8 text-center text-xs text-slate-500">
-                Đang tải dữ liệu...
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                {slots.map((s) => (
-                  <div
-                    key={s.slot_id}
-                    className="border-2 border-slate-200 rounded-2xl p-4 space-y-2 bg-slate-50/60"
-                  >
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                      <span className="text-2xl font-black text-slate-900">
-                        {s.slot_id}
-                      </span>
-                      <span className="text-xs font-bold px-2.5 py-1 rounded-lg bg-[#004b87] text-white">
-                        {s.label_vi}
-                      </span>
-                    </div>
-                    <div className="text-xs space-y-1 text-slate-700">
-                      <div>
-                        Cảm biến ({s.sensor_id}):{" "}
-                        <strong>{s.physical_status}</strong>{" "}
-                        {s.sensor_fresh ? "(Mới)" : "(Quá hạn/Chưa có)"}
-                      </div>
-                      <div>
-                        Biển số:{" "}
-                        <strong className="font-mono text-slate-900">
-                          {s.plate_display || s.plate_number || "—"}
-                        </strong>
-                      </div>
-                      <div>
-                        Người đặt:{" "}
-                        <strong>
-                          {s.booked_by_display_name || s.booked_by_username || "—"}
-                        </strong>
-                      </div>
-                      <div>
-                        Booking ID:{" "}
-                        <span className="font-mono text-[11px]">
-                          {s.active_booking_id || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Session ID:{" "}
-                        <span className="font-mono text-[11px]">
-                          {s.reserved_session_id || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Hết hạn Booking:{" "}
-                        <strong>{formatAdminVnDateTime(s.expires_at)}</strong>
-                      </div>
-                      <div>
-                        IR Last Seen:{" "}
-                        <span>{formatAdminVnDateTime(s.last_seen_at)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
+    {activeTab === "devices" && <>
+      <section className="panel"><div className="panel-header"><h2>Kết nối và camera</h2><StatusBadge status={mqttConnected ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={mqttConnected ? "MQTT đã kết nối" : "MQTT chưa kết nối"} /></div><div className="panel-body stack"><div className="device-grid">{gateway?.devices.map((device) => <div className="device-card stack" key={device.device_id} style={{ gap: 10 }}><div className="row spread"><h3>{device.device_id === "s3_plate_ctrl" ? "Camera biển số / Điều khiển" : "Camera khuôn mặt"}</h3><StatusBadge status={device.online ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={device.online ? "Trực tuyến" : "Chưa có kết nối"} /></div><span className="small muted mono">{device.device_id}</span><dl className="detail-list"><dt>Camera</dt><dd>{device.camera_ready ? "Sẵn sàng" : "Chưa sẵn sàng"}</dd><dt>Nhận tín hiệu gần nhất</dt><dd>{device.age_seconds === null ? "Chưa có" : `${device.age_seconds} giây trước`}</dd></dl></div>)}</div>
+      <dl className="detail-list"><dt>Model AI</dt><dd>{statusLabel(gateway?.ai_status)}</dd><dt>Lượt nhận diện hiện tại</dt><dd className="mono">{gateway?.active_event_id || "Không có"}</dd><dt>Số lượt đang chờ</dt><dd>{gateway?.queue_length ?? "—"}</dd></dl>
+      </div></section>
+      <section className="panel"><div className="panel-header"><h2>Cảm biến bốn ô đỗ</h2></div>{sensors.length === 0 ? <EmptyState>Chưa có dữ liệu cảm biến.</EmptyState> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Ô đỗ</th><th>Cảm biến</th><th>Trạng thái vật lý</th><th>Độ mới dữ liệu</th><th>Nhận lần cuối</th></tr></thead><tbody>{sensors.map((sensor) => <tr key={sensor.slot_id}><td><strong>{sensor.slot_id}</strong></td><td className="mono">{sensor.sensor_id}</td><td>{statusLabel(sensor.physical_status)}</td><td><StatusBadge status={sensor.is_fresh && !sensor.is_fault ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={sensor.is_fresh && !sensor.is_fault ? `Hợp lệ · ${sensor.age_seconds ?? 0}s` : "Quá hạn / Chưa rõ"} /></td><td>{formatAdminVnDateTime(sensor.last_seen_at)}</td></tr>)}</tbody></table></div>}</section>
+      <section className="panel"><div className="panel-header"><div><h2>Phản hồi lệnh điều khiển</h2><p>Thiết bị nhận lệnh chưa có nghĩa là xe đã qua cổng.</p></div></div>{!gateway?.commands.length ? <EmptyState>Chưa có lệnh điều khiển.</EmptyState> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Lượt cổng</th><th>Lệnh</th><th>Phản hồi thiết bị</th></tr></thead><tbody>{gateway.commands.slice(-10).reverse().map((command) => <tr key={command.command_id}><td className="mono small">{command.event_id}</td><td>{command.action === "OPEN" ? "Cho phép mở" : command.action === "DENY" ? "Từ chối" : "Giữ để kiểm tra"}</td><td><StatusBadge status={command.delivery_status} /></td></tr>)}</tbody></table></div>}</section>
+    </>}
 
-        {/* Manual Reviews Section */}
-        {(activeTab === "overview" || activeTab === "reviews") && (
-          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <h2 className="text-base font-extrabold text-[#004b87] uppercase">
-              Danh Sách Sự Kiện Cần Duyệt Thủ Công ({reviews.length})
-            </h2>
-            {reviews.length === 0 ? (
-              <div className="text-xs text-slate-500 py-4">
-                Hiện không có sự kiện cổng hoặc phiên đỗ xe nào cần duyệt thủ công.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {reviews.map((rev) => (
-                  <div
-                    key={rev.event_id}
-                    className="border-2 border-amber-400 bg-amber-50/40 rounded-2xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-                  >
-                    <div className="text-xs space-y-1">
-                      <div className="font-extrabold text-sm text-slate-900">
-                        [{rev.review_type}] Cổng {rev.gate_id} • Mã sự kiện:{" "}
-                        <span className="font-mono">{rev.event_id}</span>
-                      </div>
-                      <div>
-                        Biển số:{" "}
-                        <strong className="font-mono">
-                          {rev.plate_display || rev.plate_number || "—"}
-                        </strong>{" "}
-                        • Ô: <strong>{rev.slot_id || "—"}</strong> • Mã lý do:{" "}
-                        <strong className="text-rose-700">{rev.reason_code}</strong>
-                      </div>
-                      <div>
-                        Liveness: <strong>{rev.liveness_status || "—"}</strong> (Score:{" "}
-                        {rev.liveness_score ?? "—"}) • Thời gian:{" "}
-                        {formatAdminVnDateTime(rev.created_at)}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                      <input
-                        type="text"
-                        placeholder="Nhập lý do duyệt / từ chối..."
-                        value={reviewReasons[rev.event_id] || ""}
-                        onChange={(e) =>
-                          setReviewReasons((prev) => ({
-                            ...prev,
-                            [rev.event_id]: e.target.value,
-                          }))
-                        }
-                        className="px-3 py-2 border border-slate-300 rounded-xl text-xs bg-white min-w-[220px]"
-                      />
-                      <button
-                        onClick={() => handleReviewDecision(rev.event_id, "APPROVE")}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer"
-                      >
-                        ✓ Cho phép (APPROVE)
-                      </button>
-                      <button
-                        onClick={() => handleReviewDecision(rev.event_id, "DENY")}
-                        className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs cursor-pointer"
-                      >
-                        ✕ Từ chối (DENY)
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Admin Sessions Table */}
-        {(activeTab === "overview" || activeTab === "sessions") && (
-          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <h2 className="text-base font-extrabold text-[#004b87] uppercase">
-              Danh Sách Phiên Gửi Xe ({sessions.length})
-            </h2>
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-600">
-                    <th className="py-2.5 px-3">Mã Phiên</th>
-                    <th className="py-2.5 px-3">Biển Số</th>
-                    <th className="py-2.5 px-3">Ô Đỗ</th>
-                    <th className="py-2.5 px-3">Trạng Thái Phiên</th>
-                    <th className="py-2.5 px-3">Trạng Thái Đỗ</th>
-                    <th className="py-2.5 px-3">Giờ Vào / Giờ Ra</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {sessions.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-6 text-center text-slate-400">
-                        Chưa có phiên gửi xe nào.
-                      </td>
-                    </tr>
-                  ) : (
-                    sessions.map((s) => (
-                      <tr key={s.session_id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono text-[11px]">
-                          {s.session_id.slice(0, 8)}...
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold">
-                          {s.plate_display || s.plate_number}
-                        </td>
-                        <td className="py-2.5 px-3 font-black text-[#004b87]">
-                          {s.assigned_slot_id}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold">{s.status}</td>
-                        <td className="py-2.5 px-3">{s.parking_status}</td>
-                        <td className="py-2.5 px-3 text-[11px]">
-                          <div>Vào: {formatAdminVnDateTime(s.entry_time)}</div>
-                          <div>Ra: {formatAdminVnDateTime(s.exit_time)}</div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {/* Admin Bookings Table */}
-        {(activeTab === "overview" || activeTab === "bookings") && (
-          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <h2 className="text-base font-extrabold text-[#004b87] uppercase">
-              Danh Sách Toàn Bộ Đặt Chỗ ({bookings.length})
-            </h2>
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-600">
-                    <th className="py-2.5 px-3">Mã Booking</th>
-                    <th className="py-2.5 px-3">Tài Khoản</th>
-                    <th className="py-2.5 px-3">Biển Số</th>
-                    <th className="py-2.5 px-3">Ô</th>
-                    <th className="py-2.5 px-3">Trạng Thái</th>
-                    <th className="py-2.5 px-3">Giờ Đặt / Hết Hạn</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {bookings.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-6 text-center text-slate-400">
-                        Chưa có bản ghi đặt chỗ nào.
-                      </td>
-                    </tr>
-                  ) : (
-                    bookings.map((b) => (
-                      <tr key={b.booking_id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono text-[11px]">
-                          {b.booking_id.slice(0, 8)}...
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold">
-                          {b.display_name || b.username || `User #${b.user_id}`}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold">
-                          {b.plate_display || b.plate_number}
-                        </td>
-                        <td className="py-2.5 px-3 font-black text-[#004b87]">
-                          {b.slot_id}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold">{b.status}</td>
-                        <td className="py-2.5 px-3 text-[11px]">
-                          <div>Đặt: {formatAdminVnDateTime(b.created_at)}</div>
-                          <div>Hạn: {formatAdminVnDateTime(b.expires_at)}</div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {/* Devices & IR Sensor Freshness Table */}
-        {activeTab === "devices" && (
-          <section className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-            <h2 className="text-base font-extrabold text-[#004b87] uppercase">
-              Độ Mới Dữ Liệu Cảm Biến IR 4 Ô Đỗ (ESP32 DevKit)
-            </h2>
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 font-bold text-slate-600">
-                    <th className="py-2.5 px-3">Ô</th>
-                    <th className="py-2.5 px-3">Mã Cảm Biến</th>
-                    <th className="py-2.5 px-3">Trạng Thái Vật Lý</th>
-                    <th className="py-2.5 px-3">Độ Mới Dữ Liệu</th>
-                    <th className="py-2.5 px-3">Boot ID / Sequence</th>
-                    <th className="py-2.5 px-3">Last Seen At</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {sensors.map((d) => (
-                    <tr key={d.slot_id}>
-                      <td className="py-2.5 px-3 font-black">{d.slot_id}</td>
-                      <td className="py-2.5 px-3 font-mono">{d.sensor_id}</td>
-                      <td className="py-2.5 px-3 font-bold">{d.physical_status}</td>
-                      <td className="py-2.5 px-3">
-                        <span
-                          className={`px-2 py-0.5 rounded font-bold ${
-                            d.is_fresh && !d.is_fault
-                              ? "bg-emerald-100 text-emerald-800"
-                              : "bg-rose-100 text-rose-800"
-                          }`}
-                        >
-                          {d.is_fresh && !d.is_fault
-                            ? `Hợp lệ (${d.age_seconds ?? 0}s)`
-                            : "Quá hạn / Chưa có dữ liệu"}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-[11px]">
-                        {d.last_boot_id || "—"} / seq={d.last_sequence ?? "—"}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        {formatAdminVnDateTime(d.last_seen_at)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-      </main>
-    </div>
-  );
+    {activeTab === "logs" && <section className="panel"><div className="panel-header"><h2>Hoạt động gần đây</h2><span className="small muted">50 bản ghi gần nhất</span></div>{logs.length === 0 ? <EmptyState>Chưa có hoạt động được ghi nhận.</EmptyState> : <div className="table-wrap"><table className="data-table"><thead><tr><th>Thời gian</th><th>Hoạt động</th><th>Chi tiết</th><th>Người thực hiện</th></tr></thead><tbody>{logs.map((log) => <tr key={log.log_id}><td>{formatAdminVnDateTime(log.created_at)}</td><td className="mono small">{log.event_type}</td><td className="small">{log.reason_code || "—"}<div className="muted mono">{log.event_id}</div></td><td>{log.actor_user_id ? `Tài khoản ${log.actor_user_id}` : "Hệ thống"}</td></tr>)}</tbody></table></div>}</section>}
+  </AppShell>;
 };

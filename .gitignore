@@ -25,6 +25,10 @@ wheels/
 htmlcov/
 .env
 .venv
+/.venv-duy/
+firmware/**/config.local.h
+firmware/.pio/
+deployment/mosquitto/passwd
 venv/
 ENV/
 

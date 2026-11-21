@@ -1,11 +1,13 @@
-﻿face:
-  model_root: "models/insightface"
+# Reference paths relative to the repository root.
+# Runtime configuration comes from .env/Settings; LicensePlateReader uses its packaged weights.
+face:
+  model_root: "edge-server/models/insightface"
   model_pack: "buffalo_l"
   providers:
     - "CPUExecutionProvider"
-  detection_size: [640, 640]
   liveness_enabled: true
+  liveness_path: "edge-server/models/insightface/addons/liveness.onnx"
 
 plate:
-  detector_path: "models/plate/detector.onnx"
-  ocr_path: "models/plate/ocr.onnx"
+  detector_path: "modules/license_plate_yolo_numpy/license_plate_yolo_numpy/weights/best.pt"
+  ocr_path: "modules/license_plate_yolo_numpy/license_plate_yolo_numpy/weights/ocr_coco_weights.npz"

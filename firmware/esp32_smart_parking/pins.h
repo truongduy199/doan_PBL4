@@ -1,23 +1,55 @@
-﻿#ifndef PINS_H
+#ifndef PINS_H
 #define PINS_H
 
-// Cảm biến tiệm cận / quang
-#define PIN_ENTRY_SENSOR_1 34
-#define PIN_ENTRY_SENSOR_2 35
-#define PIN_EXIT_SENSOR_1  32
-#define PIN_EXIT_SENSOR_2  33
+/**
+ * Sơ đồ chân chuẩn theo Mục IV.2 & VIII.3 Báo cáo PBL4
+ * Board: ESP32-S3 N16R8 CAM (OV5640)
+ * Lưu ý quan trọng:
+ * - Bỏ hoàn toàn DevKit V1, hai LED xanh/đỏ ngoài và hai điện trở 220 ohm.
+ * - Giữ PSRAM (GPIO35-37) cho camera; không dùng microSD và để trống USB-OTG.
+ * - GPIO20 dùng cho còi MH-FMD nên dùng Serial0 UART thay vì USB native CDC trên GPIO19/20.
+ */
 
-// Chấp hành (Servo Barie)
-#define PIN_SERVO_ENTRY 18
-#define PIN_SERVO_EXIT  19
+// 1. Hai cảm biến IR tại cổng (theo mạch thử: LOW là có vật)
+#define PIN_IR_GATE_IN     1
+#define PIN_IR_GATE_OUT    2
 
-// Còi & Đèn báo
-#define PIN_BUZZER 23
-#define PIN_LED_GREEN 21
-#define PIN_LED_RED   22
+// 2. Bốn cảm biến IR tại bốn ô đỗ A1, A2, B1, B2 (theo mạch thử: LOW là có vật)
+#define PIN_IR_SLOT_A1     14
+#define PIN_IR_SLOT_A2     21
+#define PIN_IR_SLOT_B1     41
+#define PIN_IR_SLOT_B2     42
 
-// I2C LCD (SDA=21, SCL=22 hoặc chân cấu hình tùy chọn)
-#define LCD_SDA 21
-#define LCD_SCL 22
+// 3. Hai Servo Barie (PWM 50Hz, dùng LEDC Timer 1, Kênh 2 & 3, 14-bit để tránh trùng Timer 0 của Camera)
+#define PIN_SERVO_IN       38
+#define PIN_SERVO_OUT      39
+
+// 4. Còi MH-FMD (Active LOW: LOW = bật còi, HIGH = tắt còi)
+#define PIN_BUZZER         20
+
+// 5. Màn hình OLED SSD1306 128x64 I2C (Địa chỉ 0x3C)
+#define PIN_OLED_SDA       40
+#define PIN_OLED_SCL       47
+#define OLED_I2C_ADDR      0x3C
+#define OLED_WIDTH         128
+#define OLED_HEIGHT        64
+
+// 6. Chân Camera OV5640 trên bo ESP32-S3 N16R8 CAM chuẩn (Dành riêng Timer 0 / Channel 0 cho XCLK)
+#define CAM_PIN_PWDN       -1
+#define CAM_PIN_RESET      -1
+#define CAM_PIN_XCLK       15
+#define CAM_PIN_SIOD       4
+#define CAM_PIN_SIOC       5
+#define CAM_PIN_D7         16
+#define CAM_PIN_D6         17
+#define CAM_PIN_D5         18
+#define CAM_PIN_D4         12
+#define CAM_PIN_D3         10
+#define CAM_PIN_D2         8
+#define CAM_PIN_D1         9
+#define CAM_PIN_D0         11
+#define CAM_PIN_VSYNC      6
+#define CAM_PIN_HREF       7
+#define CAM_PIN_PCLK       13
 
 #endif // PINS_H

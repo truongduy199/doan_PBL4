@@ -1,5 +1,7 @@
 # Cấu trúc dự án PBL4 - Bãi đỗ xe thông minh
 
+> Cấu hình và trình tự tích hợp hiện hành: [Bàn giao phần Duy](docs/setup/duy-handover.md). Firmware thật dùng HTTP/MQTT; Serial i/o chỉ bật trong môi trường Wokwi. Các đoạn hướng dẫn DevKit/Serial/ba camera phía dưới là mô tả cũ, không dùng để đấu nối hoặc triển khai bản hai S3.
+
 > Phiên bản cập nhật: tích hợp InsightFace cho xác thực khuôn mặt 1:1 trên Edge Server.
 
 ## 1. Kiến trúc được chọn

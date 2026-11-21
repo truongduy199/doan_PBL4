@@ -16,6 +16,7 @@ import { UserProfile } from "../shared/types";
 const AppRoutes: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
+  const [logoutNotice, setLogoutNotice] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,6 +50,7 @@ const AppRoutes: React.FC = () => {
   }, []);
 
   const handleLoginSuccess = (user: UserProfile) => {
+    setLogoutNotice(null);
     setCurrentUser(user);
     if (user.role === "admin") {
       navigate("/admin", { replace: true });
@@ -58,15 +60,21 @@ const AppRoutes: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await AuthService.logout();
-    setCurrentUser(null);
-    navigate("/login", { replace: true });
+    try {
+      await AuthService.logout();
+      setLogoutNotice(null);
+    } catch {
+      setLogoutNotice("Đã thoát tài khoản trên trình duyệt này. Máy chủ chưa xác nhận đăng xuất do mất kết nối.");
+    } finally {
+      setCurrentUser(null);
+      navigate("/login", { replace: true });
+    }
   };
 
   if (isCheckingSession) {
     return (
-      <div className="min-h-screen bg-slate-900 text-white flex items-center justify-center text-sm font-bold">
-        ⏳ Đang kiểm tra phiên đăng nhập...
+      <div className="loading-screen" role="status">
+        Đang kiểm tra phiên đăng nhập…
       </div>
     );
   }
@@ -82,7 +90,7 @@ const AppRoutes: React.FC = () => {
               replace
             />
           ) : (
-            <LoginPage onLoginSuccess={handleLoginSuccess} />
+            <LoginPage onLoginSuccess={handleLoginSuccess} sessionNotice={logoutNotice} />
           )
         }
       />

@@ -1,9 +1,34 @@
-﻿#ifndef PROTOCOL_H
+#ifndef PROTOCOL_H
 #define PROTOCOL_H
 
 #include <Arduino.h>
 
-void parseIncomingMessage(const String& jsonStr);
-void sendEvent(const char* eventType, const char* payloadJson);
+void initNetworkAndProtocol();
+void updateNetworkAndProtocol();
+
+const char* getBootId();
+uint32_t nextSequenceNumber();
+
+// Các hàm phát bản tin MQTT từ S3 điều khiển lên Backend (Mục VIII.2)
+void publishGateDetectedEvent(const char* gateId, const char* eventId, const char* eventStatus, bool irPresent);
+void publishGatePassageConfirmed(const char* gateId, const char* eventId);
+void publishSlotsSnapshot(bool forceImmediate);
+void publishDeviceHeartbeat();
+void publishCommandAck(
+    const char* commandId,
+    const char* eventId,
+    const char* gateId,
+    bool accepted,
+    bool servoIssued,
+    const char* reason
+);
+
+// Chụp ảnh OV5640 và gửi HTTP POST /api/device/images kèm metadata
+bool captureAndUploadImageHttp(
+    const char* eventId,
+    const char* gateId,
+    const char* roi,
+    const char* requestId
+);
 
 #endif // PROTOCOL_H

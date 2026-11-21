@@ -681,9 +681,16 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
             json={"action": "APPROVE", "reason": "Đã kiểm tra thẻ sinh viên & giấy đăng ký xe"},
             headers={"Authorization": f"Bearer {admin_token}"},
         )
-        self.assertEqual(decide_res.status_code, 200)
-        self.assertEqual(decide_res.json()["decision"], "Approved")
-        self.assertEqual(decide_res.json()["reason_code"], "MANUAL_REVIEW_APPROVED")
+        # An old database event without a live device turn must never open a gate.
+        self.assertEqual(decide_res.status_code, 409)
+        self.assertEqual(decide_res.json()["reason_code"], "REVIEW_TURN_STALE")
+        denied_res = admin_client.post(
+            "/api/admin/reviews/EV-REVIEW-001/decision",
+            json={"action": "DENY", "reason": "No live gate turn; deny stale event"},
+            headers={"Authorization": f"Bearer {admin_token}"},
+        )
+        self.assertEqual(denied_res.status_code, 200)
+        self.assertEqual(denied_res.json()["decision"], "Denied")
 
         # Duplicate decision on already decided event must be rejected with 409
         dup_res = admin_client.post(
@@ -971,7 +978,12 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
         dashboard_dir = repo_root / "dashboard"
         if str(dashboard_dir) not in sys.path:
             sys.path.insert(0, str(dashboard_dir))
-        import serve_frontend
+        try:
+            import serve_frontend
+        except ModuleNotFoundError as exc:
+            if exc.name in ("fastapi", "uvicorn"):
+                self.skipTest("Frontend serving check requires FastAPI and uvicorn")
+            raise
 
         html = serve_frontend.build_spa_html()
         self.assertIn("@babel/standalone@7.24.7", html)

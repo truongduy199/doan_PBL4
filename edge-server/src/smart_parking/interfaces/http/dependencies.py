@@ -8,6 +8,7 @@ from smart_parking.application.services.auth_service import AuthService
 from smart_parking.application.services.booking_service import BookingService
 from smart_parking.application.services.event_service import RealtimeEventBus
 from smart_parking.application.services.gate_data_service import GateDataService
+from smart_parking.application.services.gate_workflow_service import GateWorkflowService
 from smart_parking.application.services.retention_service import RetentionService
 from smart_parking.application.services.session_service import AdminQueryService
 from smart_parking.application.services.slot_service import SlotService
@@ -32,6 +33,7 @@ class AppContainer:
     slot_service: SlotService
     booking_service: BookingService
     gate_data_service: GateDataService
+    gate_workflow_service: GateWorkflowService
     retention_service: RetentionService
     admin_query_service: AdminQueryService
 
@@ -57,6 +59,11 @@ def build_container(
         event_bus=event_bus,
         settings=cfg,
     )
+    gate_workflow_service = GateWorkflowService(
+        gate_data_service=gate_data_service,
+        slot_service=slot_service,
+        settings=cfg,
+    )
     retention_service = RetentionService(uow=uow, event_bus=event_bus)
     admin_query_service = AdminQueryService(uow=uow)
 
@@ -70,6 +77,7 @@ def build_container(
         slot_service=slot_service,
         booking_service=booking_service,
         gate_data_service=gate_data_service,
+        gate_workflow_service=gate_workflow_service,
         retention_service=retention_service,
         admin_query_service=admin_query_service,
     )

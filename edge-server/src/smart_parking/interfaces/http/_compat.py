@@ -72,6 +72,15 @@ except ImportError:
                 return json.loads(self._body_data)
             return {}
 
+        async def body(self) -> bytes:
+            if isinstance(self._body_data, (bytes, bytearray)):
+                return bytes(self._body_data)
+            if isinstance(self._body_data, str):
+                return self._body_data.encode("utf-8")
+            if isinstance(self._body_data, (dict, list)):
+                return json.dumps(self._body_data).encode("utf-8")
+            return b""
+
     class Response:  # type: ignore
         def __init__(
             self,

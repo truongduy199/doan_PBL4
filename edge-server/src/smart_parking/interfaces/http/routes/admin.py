@@ -61,7 +61,7 @@ async def submit_admin_review_decision(event_id: str, request: Request) -> Dict[
     action = str(body.get("action") or "")
     reason = str(body.get("reason") or "")
     command_id = body.get("command_id")
-    return container.gate_data_service.record_manual_review_decision(
+    return container.gate_workflow_service.submit_manual_review(
         event_id=event_id,
         admin_user_id=int(admin_claims["user_id"]),
         action=action,
@@ -75,7 +75,10 @@ async def get_admin_devices(request: Request) -> Dict[str, Any]:
     """Return IR sensor freshness (`last_seen_at`, `last_boot_id`, `last_sequence`) for all 4 slots."""
     require_admin_user(request)
     container = get_container(request)
-    return container.slot_service.get_admin_devices_health()
+    return {**container.slot_service.get_admin_devices_health(),
+            "gateway": container.gate_workflow_service.diagnostics(),
+            "mqtt": getattr(request.app.state, "mqtt_bridge", None).status()
+                    if getattr(request.app.state, "mqtt_bridge", None) else {"connected": False, "enabled": False}}
 
 
 @router.get("/logs")

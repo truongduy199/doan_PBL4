@@ -1,0 +1,16 @@
+{
+  "algorithm": "SHA256",
+  "baseline_note": "Locally observed repository weights on 2026-11-21. This baseline detects later changes; it does not certify training provenance or accuracy.",
+  "models": [
+    {
+      "path": "modules/license_plate_yolo_numpy/license_plate_yolo_numpy/weights/best.pt",
+      "sha256": "9fe666ad8f8b50d3d75af06a2f13890d2e47d34c0ca7edeb0d68b62789b15dd1",
+      "bytes": 6252906
+    },
+    {
+      "path": "modules/license_plate_yolo_numpy/license_plate_yolo_numpy/weights/ocr_coco_weights.npz",
+      "sha256": "e5bfa2ec99241878911b5c60e2e8cc6ff6c87e4ead9dddc241252a8173ee2bc0",
+      "bytes": 4027326
+    }
+  ]
+}

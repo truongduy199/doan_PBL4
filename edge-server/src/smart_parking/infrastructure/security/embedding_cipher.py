@@ -132,8 +132,7 @@ class EmbeddingCipher:
             blob = aesgcm.encrypt(nonce, plaintext, aad)
             backend = "cryptography"
         else:
-            blob = _fallback_aead_encrypt(self._key, nonce, plaintext, aad)
-            backend = "builtin-aead"
+            raise RuntimeError("cryptography is required for AES-256-GCM encryption; no fallback encryption is allowed")
 
         # AESGCM appends the 16-byte authentication tag at the end of ciphertext
         tag_b64 = base64.b64encode(blob[-16:]).decode("ascii")
@@ -167,9 +166,12 @@ class EmbeddingCipher:
         aad = f"pbl4:embedding:{kv}:{dtype}:{size}".encode("utf-8")
         backend = metadata.get("backend")
 
-        if backend == "builtin-aead" or not (_HAS_CRYPTOGRAPHY and AESGCM is not None):
+        if backend == "builtin-aead":
+            # Read compatibility only for old records. Never create new records in this format.
             plaintext = _fallback_aead_decrypt(self._key, nonce, raw_blob, aad)
         else:
+            if not (_HAS_CRYPTOGRAPHY and AESGCM is not None):
+                raise RuntimeError("cryptography is required to decrypt AES-256-GCM records")
             aesgcm = AESGCM(self._key)
             plaintext = aesgcm.decrypt(nonce, raw_blob, aad)
 

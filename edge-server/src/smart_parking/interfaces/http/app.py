@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Dict, Optional
@@ -23,6 +24,7 @@ from smart_parking.interfaces.http.routes import (
     admin,
     auth,
     bookings,
+    device,
     health,
     realtime,
     reviews,
@@ -40,6 +42,9 @@ def create_app(
     @asynccontextmanager
     async def _lifespan(target_app: FastAPI) -> AsyncIterator[None]:
         worker: Optional[BookingExpiryAndRetentionWorker] = None
+        maintenance_task = None
+        bridge = None
+        mdns = None
         if enable_background_worker:
             app_container = getattr(target_app.state, "container", None)
             if app_container is None:
@@ -51,9 +56,44 @@ def create_app(
                 interval_seconds=app_container.settings.expiry_worker_interval_seconds,
             )
             worker.start()
+            await asyncio.to_thread(app_container.gate_workflow_service.initialize_ai)
+            if app_container.settings.mqtt_enabled:
+                from smart_parking.infrastructure.mqtt.mqtt_bridge import MqttGateBridge
+                bridge = MqttGateBridge(app_container.gate_workflow_service,
+                                        app_container.settings.mqtt_host, app_container.settings.mqtt_port,
+                                        app_container.settings.mqtt_username, app_container.settings.mqtt_password)
+                target_app.state.mqtt_bridge = bridge
+                bridge.start_background()
+            if app_container.settings.mdns_enabled:
+                from smart_parking.infrastructure.mdns import MdnsAdvertisement
+                mdns = MdnsAdvertisement(app_container.settings.lan_ip, app_container.settings.http_port)
+                try:
+                    await asyncio.to_thread(mdns.start)
+                except Exception:
+                    logging.getLogger(__name__).exception("mDNS advertisement unavailable")
+                    mdns.stop()
+                    mdns = None
+            async def maintain_gate_turns() -> None:
+                while True:
+                    try:
+                        await asyncio.to_thread(app_container.gate_workflow_service.maintain)
+                    except Exception:
+                        logging.getLogger(__name__).exception("Gate maintenance failed")
+                    await asyncio.sleep(1)
+            maintenance_task = asyncio.create_task(maintain_gate_turns())
         try:
             yield
         finally:
+            if maintenance_task:
+                maintenance_task.cancel()
+                try:
+                    await maintenance_task
+                except asyncio.CancelledError:
+                    pass
+            if bridge:
+                await asyncio.to_thread(bridge.stop)
+            if mdns:
+                await asyncio.to_thread(mdns.stop)
             if worker is not None:
                 await worker.stop()
 
@@ -92,6 +132,7 @@ def create_app(
     app.include_router(slots.router)
     app.include_router(bookings.router)
     app.include_router(admin.router)
+    app.include_router(device.router)
     app.include_router(realtime.router)
     app.include_router(reviews.router)
 
@@ -101,7 +142,7 @@ def create_app(
 
         _serve_fe_path: Optional[Path] = None
         for _ancestor in Path(__file__).resolve().parents:
-            _candidate = _ancestor / "dashboard" / "serve_frontend.py"
+            _candidate = _ancestor / "dashboard" / "spa.py"
             if _candidate.is_file():
                 _serve_fe_path = _candidate
                 break
@@ -119,7 +160,15 @@ def create_app(
                 @app.get("/user", response_class=HTMLResponse, include_in_schema=False)
                 @app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
                 async def _serve_unified_spa() -> HTMLResponse:
+                    dist_index = _serve_fe_path.parent / "dist" / "index.html"
+                    if dist_index.is_file():
+                        return HTMLResponse(content=dist_index.read_text(encoding="utf-8"), status_code=200)
                     return HTMLResponse(content=_fe_mod.build_spa_html(), status_code=200)
+
+                from fastapi.staticfiles import StaticFiles
+                dist_assets = _serve_fe_path.parent / "dist" / "assets"
+                if dist_assets.is_dir():
+                    app.mount("/assets", StaticFiles(directory=str(dist_assets)), name="dashboard-assets")
 
     return app
 
@@ -163,6 +212,7 @@ class LocalTestClient:
         method: str,
         url: str,
         json: Any = None,
+        content: Any = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> Any:
@@ -170,6 +220,8 @@ class LocalTestClient:
             kwargs: Dict[str, Any] = {}
             if json is not None:
                 kwargs["json"] = json
+            if content is not None:
+                kwargs["content"] = content
             if headers is not None:
                 kwargs["headers"] = headers
             if cookies is not None:
@@ -191,7 +243,7 @@ class LocalTestClient:
             headers=headers,
             cookies=merged_cookies,
             query_params=query_params,
-            body_data=json,
+            body_data=content if content is not None else json,
             app=self.app,
         )
         resp = Response(status_code=200)
@@ -231,10 +283,11 @@ class LocalTestClient:
                 if inspect.iscoroutinefunction(endpoint):
                     coro = endpoint(**call_kwargs)
                     try:
-                        while True:
-                            coro.send(None)
-                    except StopIteration as stop_exc:
-                        payload = stop_exc.value
+                        coro.send(None)
+                    except StopIteration as done:
+                        payload = done.value
+                    else:
+                        raise RuntimeError("Offline LocalTestClient cannot execute asynchronous I/O; install FastAPI/httpx")
                     finally:
                         coro.close()
                 else:
@@ -282,7 +335,8 @@ class LocalTestClient:
         self,
         url: str,
         json: Any = None,
+        content: Any = None,
         headers: Optional[Dict[str, str]] = None,
         cookies: Optional[Dict[str, str]] = None,
     ) -> ClientResponse:
-        return self.request("POST", url, json=json, headers=headers, cookies=cookies)
+        return self.request("POST", url, json=json, content=content, headers=headers, cookies=cookies)

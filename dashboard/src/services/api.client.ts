@@ -12,30 +12,13 @@ function resolveApiBaseUrl(): string {
   if (typeof window === "undefined") {
     return envUrl || "http://127.0.0.1:8000";
   }
+  if (envUrl) return envUrl;
   const { protocol, hostname, port, origin } = window.location;
-  // If served directly from the unified FastAPI server (port 8000) or via an HTTPS public tunnel (port 80/443)
-  if (port === "8000" || port === "" || protocol === "https:") {
-    return origin;
-  }
-  // If served from separate frontend dev server (port 5173) over LAN IP or localhost
-  if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1") {
-    return `${protocol}//${hostname}:8000`;
-  }
-  return envUrl || "http://127.0.0.1:8000";
+  return ["5173", "3000"].includes(port) ? `${protocol}//${hostname}:8000` : origin;
 }
 
 function resolveWsUrl(apiBase: string): string {
   const envWs = import.meta.env.VITE_WS_URL as string | undefined;
-  if (typeof window !== "undefined") {
-    const { protocol, hostname, port, host } = window.location;
-    const wsProto = protocol === "https:" ? "wss:" : "ws:";
-    if (port === "8000" || port === "" || protocol === "https:") {
-      return `${wsProto}//${host}/api/ws`;
-    }
-    if (hostname && hostname !== "localhost" && hostname !== "127.0.0.1") {
-      return `${wsProto}//${hostname}:8000/api/ws`;
-    }
-  }
   return envWs || `${apiBase.replace(/^http/, "ws")}/api/ws`;
 }
 
@@ -113,7 +96,7 @@ export class ApiClient {
       throw new ApiError(
         0,
         "NETWORK_ERROR",
-        `Không thể kết nối tới máy chủ FastAPI (${API_BASE_URL}). Vui lòng kiểm tra Edge Server đang chạy.`,
+        "Không thể kết nối máy chủ. Vui lòng thử lại sau.",
         { originalError: String(networkErr) }
       );
     }
@@ -194,7 +177,7 @@ export class ApiClient {
     };
 
     const connectSSE = () => {
-      if (closed) return;
+      if (closed || sse) return;
       try {
         sse = new EventSource(`${API_BASE_URL}/api/events/stream`, {
           withCredentials: true,
@@ -223,6 +206,7 @@ export class ApiClient {
       try {
         ws = new WebSocket(WS_URL);
         ws.onopen = () => {
+          if (sse) { sse.close(); sse = null; }
           onStatusChange?.(true);
         };
         ws.onmessage = (ev) => {
@@ -237,9 +221,10 @@ export class ApiClient {
           onStatusChange?.(false);
         };
         ws.onclose = () => {
-          onStatusChange?.(false);
+          onStatusChange?.(sse?.readyState === 1);
           if (!closed) {
-            reconnectTimer = window.setTimeout(connectWS, 3000);
+            connectSSE();
+            reconnectTimer = window.setTimeout(connectWS, 10000);
           }
         };
       } catch {

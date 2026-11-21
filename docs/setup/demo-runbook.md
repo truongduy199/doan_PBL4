@@ -1,4 +1,6 @@
-﻿# Demo Runbook & Quy Trình Test Khi Lắp Phần Cứng Thật (PBL4 Smart Parking IoT)
+# Demo Runbook & Quy Trình Test Khi Lắp Phần Cứng Thật (PBL4 Smart Parking IoT)
+
+> Cấu hình và trình tự tích hợp hiện hành: [Bàn giao phần Duy](../setup/duy-handover.md). Firmware thật dùng HTTP/MQTT; Serial i/o chỉ bật trong môi trường Wokwi. Các đoạn hướng dẫn DevKit/Serial/ba camera phía dưới là mô tả cũ, không dùng để đấu nối hoặc triển khai bản hai S3.
 
 Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi ghép **Phần cứng (ESP32 + 4 cảm biến IR + Barie + Camera)**, **AI (Nam)**, **Điều phối cổng/MQTT/Serial (Duy)** và **Database MySQL + FastAPI + Web User (Việt)** để kiểm thử tích hợp và chạy demo bảo vệ đồ án.
 

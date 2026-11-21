@@ -28,6 +28,7 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
   const [speedMultiplier, setSpeedMultiplier] = useState<1 | 1.5>(1);
   const lastFrameTimeRef = useRef<number | null>(null);
   const rafIdRef = useRef<number | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
 
   const route = DRIVER_ROUTES[slotId] || DRIVER_ROUTES.A1;
   const pose = evaluateDriverPose(slotId, progress);
@@ -74,15 +75,23 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
     };
   }, [isOpen, isPlaying, speedMultiplier]);
 
-  // Escape key closes modal cleanly
   useEffect(() => {
     if (!isOpen) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+    const previous = document.activeElement as HTMLElement | null;
+    const oldOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+      if (event.key !== "Tab") return;
+      const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") || []);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, onClose]);
+    return () => { window.removeEventListener("keydown", onKeyDown); document.body.style.overflow = oldOverflow; previous?.focus(); };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -110,27 +119,28 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
+      className="driver-modal fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-2 sm:p-4"
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-label={`Mô phỏng góc nhìn người lái tới ô ${slotId}`}
     >
-      <div className="bg-slate-900 border-2 border-slate-700/90 rounded-2xl max-w-5xl w-full overflow-hidden shadow-2xl flex flex-col text-white">
+      <div className="bg-slate-900 border border-slate-700/90 rounded-lg max-w-5xl w-full max-h-[94vh] overflow-y-auto shadow-2xl flex flex-col text-white">
         {/* Top Modal Header */}
         <div className="bg-slate-950 px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-3">
             <span className="px-2.5 py-1 rounded-lg bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-xs">
-              POV • Sau Vô Lăng
+              Mô phỏng đường đi
             </span>
             <div>
               <h3 className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2 flex-wrap">
-                <span>Dẫn Đường Vào Ô Đỗ {slotId}</span>
+                <span>Đường đến ô {slotId}</span>
                 <span className="text-xs font-mono bg-blue-900/70 text-sky-300 px-2 py-0.5 rounded-md border border-sky-700">
                   Biển số: {plateDisplay}
                 </span>
               </h3>
               <p className="text-[11px] text-slate-400">
-                {route.zoneLabel} • Mô phỏng giao diện (Không GPS • Không mở barie thật • Không sửa DB)
+                {route.zoneLabel} · Mô phỏng lộ trình; cổng thật vẫn do hệ thống xác nhận.
               </p>
             </div>
           </div>
@@ -140,7 +150,7 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
             onClick={onClose}
             className="bg-slate-800 hover:bg-rose-600 text-slate-200 hover:text-white px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer border border-slate-700"
           >
-            ✕ Thoát
+            Đóng
           </button>
         </div>
 
@@ -187,7 +197,7 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
                 {pose.phaseIndex === 0 && (pose.barrierIsOpen ? "🟢" : "🚧")}
                 {pose.phaseIndex === 1 && "⬆️"}
                 {pose.phaseIndex === 2 && (route.turnDirection === "LEFT" ? "↰" : "↱")}
-                {pose.phaseIndex === 3 && "🅿️"}
+                {pose.phaseIndex === 3 && "P"}
               </div>
               <div>
                 <div className="text-[10px] font-extrabold uppercase tracking-wider text-sky-400">
@@ -770,19 +780,19 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
               onClick={handleReplay}
               className="bg-slate-800 hover:bg-slate-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs transition cursor-pointer border border-slate-700"
             >
-              🔄 Xem lại
+              Xem lại
             </button>
 
             <button
               type="button"
               onClick={handleTogglePlay}
-              className="bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold px-4 py-2 rounded-xl text-xs transition cursor-pointer shadow"
+              className="bg-emerald-700 hover:bg-emerald-600 text-white font-semibold px-4 py-2 rounded-xl text-xs transition cursor-pointer shadow"
             >
               {isPlaying
-                ? "⏸ Tạm dừng"
+                ? "Tạm dừng"
                 : progress >= 0.995
-                ? "▶ Phát lại"
-                : "▶ Tiếp tục"}
+                ? "Phát lại"
+                : "Tiếp tục"}
             </button>
 
             <button
@@ -793,7 +803,7 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
               className="bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold px-3 py-2 rounded-xl text-xs transition cursor-pointer border border-slate-700 font-mono"
               title="Đổi tốc độ mô phỏng"
             >
-              ⚡ {speedMultiplier}x
+              {speedMultiplier}x
             </button>
 
             <button

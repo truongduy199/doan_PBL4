@@ -9,7 +9,7 @@ def check():
         for f in files:
             if f.endswith(".json"):
                 path = os.path.join(root, f)
-                with open(path, "r", encoding="utf-8") as fp:
+                with open(path, "r", encoding="utf-8-sig") as fp:
                     json.load(fp)
                 print(f"  [OK] {path}")
     print("All contracts are valid JSON.")

@@ -54,6 +54,7 @@ class Settings:
             overrides.get("mysql_database", os.getenv("MYSQL_DATABASE", "smart_parking_pbl4"))
         )
         self.mysql_pool_size: int = int(overrides.get("mysql_pool_size", os.getenv("MYSQL_POOL_SIZE", "10")))
+        self.mysql_connection_timeout: int = int(overrides.get("mysql_connection_timeout", os.getenv("MYSQL_CONNECTION_TIMEOUT", "3")))
         self.mysql_deadlock_retries: int = int(
             overrides.get("mysql_deadlock_retries", os.getenv("MYSQL_DEADLOCK_RETRIES", "3"))
         )
@@ -87,6 +88,41 @@ class Settings:
         # Serial / Hardware
         self.serial_port: str = str(overrides.get("serial_port", os.getenv("SERIAL_PORT", "COM3")))
         self.serial_baudrate: int = int(overrides.get("serial_baudrate", os.getenv("SERIAL_BAUDRATE", "115200")))
+
+        def option(name: str, default: object) -> object:
+            return overrides.get(name, os.getenv(name.upper(), default))
+
+        self.mqtt_enabled = str(option("mqtt_enabled", False)).lower() in ("1", "true", "yes")
+        self.mqtt_host = str(option("mqtt_host", "127.0.0.1"))
+        self.mqtt_port = int(option("mqtt_port", 1883))
+        self.mqtt_username = str(option("mqtt_username", "pbl4_backend"))
+        self.mqtt_password = str(option("mqtt_password", ""))
+        self.device_api_key = str(option("device_api_key", ""))
+        self.controller_device_id = str(option("controller_device_id", "s3_plate_ctrl"))
+        self.face_camera_device_id = str(option("face_camera_device_id", "s3_face_cam"))
+        self.capture_timeout_seconds = int(option("capture_timeout_seconds", 5))
+        self.gate_turn_timeout_seconds = int(option("gate_turn_timeout_seconds", 120))
+        self.command_ttl_seconds = int(option("command_ttl_seconds", 8))
+        self.max_pending_turns = int(option("max_pending_turns", 16))
+        self.face_model_root = str(option("face_model_root", "models/insightface"))
+        self.face_model_pack = str(option("face_model_pack", "buffalo_l"))
+        self.face_provider = str(option("face_provider", "auto"))
+        self.face_t_accept = float(option("face_t_accept", 0.65))
+        self.face_t_reject = float(option("face_t_reject", 0.45))
+        self.mdns_enabled = str(option("mdns_enabled", False)).lower() in ("1", "true", "yes")
+        self.lan_ip = str(option("lan_ip", ""))
+        self.http_port = int(option("http_port", 8000))
+        self.gate_rois = {}
+        for camera in ("plate", "face"):
+            for gate in ("in", "out"):
+                raw = str(option(f"{camera}_roi_{gate}", "")).strip()
+                roi = tuple(int(n.strip()) for n in raw.split(",")) if raw else None
+                if roi is not None and (len(roi) != 4 or min(roi) < 0 or roi[2] <= roi[0] or roi[3] <= roi[1]):
+                    raise ValueError(f"Invalid {camera}_roi_{gate}: expected x1,y1,x2,y2")
+                self.gate_rois[(camera, gate.upper())] = roi
+        for name in ("capture_timeout_seconds", "gate_turn_timeout_seconds", "command_ttl_seconds", "max_pending_turns"):
+            if getattr(self, name) <= 0:
+                raise ValueError(f"{name} must be positive")
 
         # Security & Encryption
         self.embedding_secret_key: str = str(

@@ -13,7 +13,7 @@ from smart_parking.interfaces.http._compat import (
     WebSocket,
     WebSocketDisconnect,
 )
-from smart_parking.interfaces.http.dependencies import get_container
+from smart_parking.interfaces.http.dependencies import get_container, get_current_user
 
 router = APIRouter(prefix="/api", tags=["Realtime"])
 
@@ -21,10 +21,16 @@ router = APIRouter(prefix="/api", tags=["Realtime"])
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     """WebSocket channel pushing realtime updates immediately after MySQL transaction commits."""
-    await websocket.accept()
     container = getattr(websocket.app.state, "container", None)
     if container is None:
         return
+    try:
+        token = websocket.cookies.get("access_token", "")
+        container.auth_service.verify_token(token)
+    except Exception:
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
 
     queue = container.event_bus.subscribe_queue()
     try:
@@ -35,7 +41,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         })
         while True:
             event = await queue.get()
-            await websocket.send_json(event)
+            # Clients refresh role-filtered REST data; never broadcast other users' plates/bookings.
+            await websocket.send_json({**event, "payload": {}})
     except WebSocketDisconnect:
         pass
     finally:
@@ -46,6 +53,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 async def sse_events_stream(request: Request) -> StreamingResponse:
     """Server-Sent Events (SSE) stream pushing realtime updates after MySQL transaction commits."""
     container = get_container(request)
+    get_current_user(request)
     queue = container.event_bus.subscribe_queue()
 
     async def _event_generator() -> AsyncIterator[str]:
@@ -59,7 +67,7 @@ async def sse_events_stream(request: Request) -> StreamingResponse:
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=15.0)
-                    yield f"data: {json.dumps(event)}\n\n"
+                    yield f"data: {json.dumps({**event, 'payload': {}})}\n\n"
                 except asyncio.TimeoutError:
                     ping = json.dumps({
                         "event_type": "HEARTBEAT",
