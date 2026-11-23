@@ -29,6 +29,9 @@ interface CameraSnapshot {
   resolution?: number[];
   reason_code?: string;
   decision?: string;
+  guidance?: { ok: boolean; reason_code: string; message: string; captured_at?: string; updated_at?: string };
+  scan_state?: string;
+  capture_round?: number;
   gate_id?: string;
   stream_id?: string;
   frame_sequence?: number;
@@ -284,15 +287,17 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
           <div className="row spread"><h3>{id === "cam_plate" ? "Camera biển số" : "Camera khuôn mặt"}</h3><span className="small muted">{cameraStream.active ? (fresh ? "Đang nhận hình" : "Chờ khung hình") : "Ảnh gần nhất"}</span></div>
           {live || visible ? <img key={cameraUrl} alt={id === "cam_plate" ? "Ảnh biển số gần nhất tại cổng" : "Ảnh khuôn mặt gần nhất tại cổng"} src={cameraUrl} style={{ width: "100%", maxHeight: 320, objectFit: "contain", background: "#17211c", borderRadius: 6 }} />
             : <EmptyState>Chưa có ảnh mới. Đưa xe tới IR cổng vào hoặc bấm chụp kiểm tra.</EmptyState>}
-          {visible && <><span className="small muted">{formatAdminVnDateTime(camera.captured_at)} · {camera.resolution?.join(" × ")}</span>{cameraStream.active && <span className="small muted">Đã nhận {cameraStream.frames_received?.[id] || 0} khung hình</span>}{camera.reason_code && <span className="small">Kết quả: {camera.reason_code}</span>}</>}
+          {id === "cam_face" && cameraStream.active && clockMs + serverOffsetMs < Date.parse(cameraStream.expires_at || "") && camera?.guidance && (!camera.guidance.captured_at || clockMs + serverOffsetMs - Date.parse(camera.guidance.captured_at) < 3000) && <div role="status" className="small" style={{ padding: 10, borderRadius: 6, background: camera.guidance.ok ? "#e8f5e9" : "#fff3cd", color: "#17211c" }}><strong>{camera.guidance.message}</strong><div>Hướng dẫn tư thế trực tiếp; kết quả duyệt lượt xe hiển thị riêng bên dưới.</div></div>}
+          {camera?.decision === "Scanning" && <span className="small">Đang tự quét lại — lần {camera?.capture_round || 1}. Giữ biển số và khuôn mặt rõ trong khung hình.</span>}
+          {visible && <><span className="small muted">{formatAdminVnDateTime(camera.captured_at)} · {camera.resolution?.join(" × ")}</span>{cameraStream.active && <span className="small muted">Đã nhận {cameraStream.frames_received?.[id] || 0} khung hình</span>}{camera.reason_code && camera.decision !== "Scanning" && <span className="small">Kết quả lượt xe: {camera.reason_code === "FACE_REVIEW_REQUIRED" ? "Cần kiểm tra thủ công vì khuôn mặt chưa đủ điểm đối chiếu" : camera.reason_code}</span>}</>}
           {visible && camera.recognition && <div className="stack small" aria-label="Kết quả nhận diện AI">
             <strong>{id === "cam_plate"
               ? (camera.recognition.ok ? `Biển số: ${camera.recognition.display_plate || camera.recognition.plate_number}` : `OCR chưa đạt${camera.recognition.raw_text ? `: ${camera.recognition.raw_text}` : ""}`)
-              : (camera.recognition.ok ? "Khuôn mặt hợp lệ" : "Khuôn mặt chưa đạt")}</strong>
+              : (camera.recognition.ok ? "Đã trích xuất đặc trưng khuôn mặt" : "Ảnh khuôn mặt chưa đạt")}</strong>
             <span>{camera.recognition.message}</span>
             {camera.recognition.liveness_status && <span>Kiểm tra người thật: {camera.recognition.liveness_status === "Passed" ? "Đạt" : "Chưa đạt"}</span>}
             {camera.recognition.template_saved && <span>Đã lưu mẫu khuôn mặt vào phiên {camera.recognition.session_id}.</span>}
-            {camera.recognition.similarity_score != null && <span>Điểm đối chiếu khuôn mặt: {camera.recognition.similarity_score.toFixed(3)}</span>}
+            {camera.recognition.similarity_score != null && <span><strong>Đối chiếu khuôn mặt: {camera.decision === "Approved" ? "Đã đạt" : "Chưa được duyệt"}.</strong> Điểm: {camera.recognition.similarity_score.toFixed(3)}</span>}
           </div>}
         </article>;
       })}</div>

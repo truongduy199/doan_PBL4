@@ -86,6 +86,95 @@ class GateRuntimeTests(unittest.TestCase):
         self.assertEqual(self.wf._active_event_id, "ev-out")
         self.assertFalse(any(p.get("action") == "OPEN" for _, p in self.wf.published_mqtt_messages))
 
+    def waiting_heartbeat(self, at=None):
+        self.wf.handle_mqtt_message("parking/devices/s3_plate_ctrl/status", {
+            "device_id": "s3_plate_ctrl", "online": True, "boot_id": "test-boot", "sequence": int((at or self.now).timestamp() * 1000),
+            "gate_in_event_id": "ev-in", "gate_in_state": "Waiting_backend"}, at or self.now)
+
+    def test_timeout_retries_fresh_batch_and_yields_to_other_gate(self):
+        self.detect()
+        self.waiting_heartbeat()
+        self.detect("ev-out", "OUT")
+        self.wf.maintain(self.now + timedelta(seconds=6))
+        self.assertEqual(self.wf._turns["ev-in"].state, "RETRY_WAIT")
+        self.assertEqual(self.wf._active_event_id, "ev-out")
+        self.wf.handle_gate_detected("ev-out", "OUT", boot_id="test-boot",
+                                   event_type="VEHICLE_LEFT_BEFORE_DECISION", now_utc=self.now + timedelta(seconds=7))
+        self.wf.maintain(self.now + timedelta(seconds=8))
+        turn = self.wf._turns["ev-in"]
+        self.assertEqual(turn.capture_round, 2)
+        self.assertEqual(turn.state, "CAPTURING")
+        captures = [p for t, p in self.wf.published_mqtt_messages if t.endswith("/capture")]
+        self.assertTrue(any(p["frame_id"] == "req-plate-ev-in-r2" for p in captures))
+        self.assertIsNone(self.c.uow.run_transactional(lambda tx: tx.gate_events.get_by_id("ev-in")))
+        self.assertFalse(any(p.get("action") == "OPEN" for _, p in self.wf.published_mqtt_messages))
+
+    def test_bad_ocr_retries_then_allocates_once(self):
+        from dataclasses import replace
+        self.detect()
+        self.waiting_heartbeat()
+        result = self.decide(plate=replace(self.plate, ok=False, reason_code="OCR_EMPTY_TEXT"))
+        self.assertEqual(result["decision"], "Scanning")
+        self.assertIsNone(self.c.uow.run_transactional(lambda tx: tx.gate_events.get_by_id("ev-in")))
+        self.wf.maintain(self.now + timedelta(seconds=2))
+        self.assertEqual(self.wf._turns["ev-in"].capture_round, 2)
+        result = self.wf.evaluate_turn("ev-in", plate_outcome_override=self.plate,
+                                      face_result_override=self.face, now_utc=self.now + timedelta(seconds=2))
+        self.assertEqual(result["decision"], "Approved")
+        self.assertIn(result["assigned_slot_id"], ("A1", "A2", "B1", "B2"))
+        self.wf.evaluate_turn("ev-in", now_utc=self.now + timedelta(seconds=3))
+        self.assertEqual(sum(p.get("action") == "OPEN" for _, p in self.wf.published_mqtt_messages), 1)
+
+    def test_retry_cancelled_when_vehicle_leaves_or_heartbeat_changes(self):
+        self.detect()
+        self.waiting_heartbeat()
+        self.wf.maintain(self.now + timedelta(seconds=6))
+        self.wf.handle_gate_detected("ev-in", "IN", boot_id="test-boot",
+                                   event_type="VEHICLE_LEFT_BEFORE_DECISION", now_utc=self.now + timedelta(seconds=7))
+        self.wf.maintain(self.now + timedelta(seconds=9))
+        self.assertEqual(self.wf._turns["ev-in"].state, "CANCELLED")
+        self.assertIsNone(self.wf._active_event_id)
+
+    def test_retry_rejects_previous_round_image_and_stale_presence(self):
+        import cv2
+        self.detect()
+        self.waiting_heartbeat()
+        self.wf.maintain(self.now + timedelta(seconds=6))
+        self.wf.maintain(self.now + timedelta(seconds=8))
+        _, jpeg = cv2.imencode(".jpg", np.zeros((100, 100, 3), dtype=np.uint8))
+        with self.assertRaises(DomainException) as cm:
+            self.wf.ingest_device_image(jpeg.tobytes(), "ev-in", "cam_plate", "s3_plate_ctrl",
+                                       "req-plate-ev-in", "IN", "ROI_IN", now_utc=self.now + timedelta(seconds=9))
+        self.assertEqual(cm.exception.reason_code, "CAPTURE_METADATA_MISMATCH")
+        self.wf.maintain(self.now + timedelta(seconds=14))
+        self.assertEqual(self.wf._turns["ev-in"].state, "RETRY_WAIT")
+        self.wf.maintain(self.now + timedelta(seconds=21))
+        self.assertEqual(self.wf._turns["ev-in"].state, "REVIEW")
+        self.assertFalse(any(p.get("action") == "OPEN" for _, p in self.wf.published_mqtt_messages))
+
+    def test_long_wait_approval_has_its_own_passage_deadline(self):
+        self.detect()
+        self.waiting_heartbeat()
+        self.wf.maintain(self.now + timedelta(seconds=6))
+        # Keep the same vehicle waiting beyond the original turn lifetime.
+        later = self.now + timedelta(seconds=130)
+        self.waiting_heartbeat(later)
+        self.wf.maintain(later)
+        self.assertEqual(self.wf._turns["ev-in"].state, "CAPTURING")
+        result = self.wf.evaluate_turn("ev-in", plate_outcome_override=self.plate,
+                                      face_result_override=self.face, now_utc=later)
+        self.assertEqual(result["decision"], "Approved")
+        self.wf.maintain(later + timedelta(seconds=1))
+        self.assertEqual(self.wf._turns["ev-in"].state, "APPROVED")
+
+    def test_long_batch_uses_capture_leases_accepted_by_existing_firmware(self):
+        self.settings.capture_timeout_seconds = 30
+        self.detect()
+        captures = [p for t, p in self.wf.published_mqtt_messages if t.endswith("/capture")]
+        self.assertEqual(len(captures), 2)
+        self.assertTrue(all(p["ttl_ms"] == 14000 for p in captures))
+        self.assertTrue(all(p["expires_at_ms"] == int(self.now.timestamp() * 1000) + 14000 for p in captures))
+
     def test_database_error_holds_new_entries(self):
         with patch.object(self.wf.gate_data_service.uow, "run_transactional", side_effect=RuntimeError("offline")):
             self.assertEqual(self.detect()["status"], "QUEUED_WAITING_TURN")
@@ -172,21 +261,21 @@ class GateRuntimeTests(unittest.TestCase):
             self.assertTrue(upload("face")["duplicate_frame"])
         self.assertEqual(sum(t == TOPIC_GATE_IN_COMMAND for t, _ in self.wf.published_mqtt_messages), 1)
 
-    def test_manual_booking_review_creates_session_before_command(self):
+    def test_booking_without_account_face_saves_entry_face_and_reserved_slot(self):
         user = self.seed["demo_user"]
-        booking = self.c.booking_service.create_booking(user_id=user["user_id"], vehicle_id=user["vehicle_id"], slot_id="B1", now_utc=self.now)
+        self.c.uow.run_transactional(lambda tx: tx.cursor.execute("DELETE FROM user_face_templates"))
+        booking = self.c.booking_service.create_booking(user_id=user["user_id"], vehicle_id=user["vehicle_id"], slot_id="A1", now_utc=self.now)
         self.detect()
-        plate = PlateRecognitionOutcome(True, "OK", "OK", "43A12345", "43A12345", "43A-123.45", .95, .95,
-                                         (1, 1, 100, 50), "test", "test", 1.0)
-        self.assertEqual(self.decide(plate=plate)["decision"], "Review_required")
-        admin = self.c.auth_service.login("admin", self.settings.demo_admin_password)["user"]["user_id"]
-        approved = self.wf.submit_manual_review("ev-in", admin, "APPROVE", "Physically verified driver", now_utc=self.now)
-        self.assertIsNotNone(approved["session_id"])
-        cmd = [p for t, p in self.wf.published_mqtt_messages if t == TOPIC_GATE_IN_COMMAND and p["action"] == "OPEN"][-1]
-        self.assertEqual(cmd["assigned_slot_id"], "B1")
-        self.assertEqual(self.wf._turns["ev-in"].state, "APPROVED")
-        with self.assertRaises(DomainException):
-            self.wf.submit_manual_review("ev-in", admin, "APPROVE", "Duplicate click", now_utc=self.now)
+        from dataclasses import replace
+        plate = replace(self.plate, normalized_plate="43A12345", raw_text="43A12345")
+        with patch.object(self.wf.face_verifier, "verify_with_metadata", side_effect=AssertionError("No account comparison at entry")):
+            approved = self.decide(plate=plate)
+        self.assertEqual(approved["decision"], "Approved")
+        self.assertEqual(approved["assigned_slot_id"], "A1")
+        self.wf.handle_gate_detected("ev-in", "IN", boot_id="test-boot", event_type="PASSAGE_CONFIRMED", now_utc=self.now)
+        prepared = self.c.gate_data_service.prepare_exit_verification(plate_number="43A12345", event_id="exit-test", now_utc=self.now)
+        self.assertEqual(prepared["template_source"], "session_face_templates")
+        self.assertTrue(np.allclose(prepared["entry_embedding"], self.face.embedding))
 
     def test_unacknowledged_command_expires_without_retry(self):
         self.detect()

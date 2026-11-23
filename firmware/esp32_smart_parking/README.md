@@ -16,6 +16,8 @@ Firmware chuẩn theo kiến trúc phần cứng đã chốt tại **Mục IV & 
 
 Chiều ảnh được chỉnh tại cảm biến bằng `CAMERA_FLIP_VERTICAL=1`, `CAMERA_FLIP_HORIZONTAL=0`, tương đối với chiều khởi tạo của driver OV5640. Ảnh thực tế cần đảo dọc; bản sửa xoay cả hai trục trước đó làm chữ biển số bị phản chiếu ngang. Cả ảnh AI và stream đều dùng cùng chiều đã chỉnh. Khi đổi cách lắp bo, có thể `#undef`/`#define` hai tùy chọn này trong `config.local.h` rồi nạp lại; không xoay thêm ở dashboard. Dùng một dòng chữ/biển số đã biết để kiểm tra cả chiều đứng và chiều trái/phải.
 
+Khi có PSRAM, buffer camera được cấp cho ảnh AI UXGA 1600×1200; MJPEG chạy VGA 640×480. Yêu cầu chụp riêng chuyển cảm biến sang UXGA, bỏ frame cũ, gửi JPEG rồi trả về VGA. Backend có thể yêu cầu nhiều ảnh liên tiếp trong cùng lượt, mỗi ảnh có frame ID riêng; ảnh AI được ưu tiên trước MJPEG. ROI cấu hình cho AI phải dùng tọa độ của ảnh 1600×1200, không phải khung xem VGA.
+
 ## 1. Bảng Chân Phần Cứng (S3 Biển Số Kiêm Điều Khiển — Mục IV.2)
 
 | Tín hiệu | GPIO trên ESP32-S3 | Ghi chú kỹ thuật |

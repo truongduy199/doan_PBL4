@@ -117,8 +117,7 @@ class GateDataService:
         - Find valid 'Reserved' booking (`expires_at > now_utc`) by normalized plate_number.
         - Lock vehicles (1) -> parking_slots (2) -> bookings (3) in strict order.
         - Transition booking to 'Checkin_pending', set checkin_started_at = now_utc, checkin_event_id = event_id.
-        - Return booking metadata + decrypted 512-D reference vector from `user_face_templates`
-          so 1:1 verification happens outside the transaction.
+        - Return booking metadata matched by plate. The live entry face belongs to the new session.
         """
         norm_plate = PlateNormalizer.normalize(plate_number)
         now_dt = now_utc or utc_now()
@@ -150,16 +149,9 @@ class GateDataService:
 
             # Idempotency check if same event_id retries begin_booking_checkin
             if booking.status == BookingStatus.CHECKIN_PENDING and booking.checkin_event_id == event_id:
-                user_tpl = tx.face_templates.get_active_user_template(booking.user_id)
-                if user_tpl is None:
-                    raise GateOperationException(
-                        "Tài khoản đặt chỗ chưa có mẫu khuôn mặt Active.",
-                        reason_code="USER_FACE_TEMPLATE_MISSING",
-                    )
                 return {
                     "booking": booking,
                     "vehicle": vehicle,
-                    "user_template": user_tpl,
                 }
 
             if booking.status != BookingStatus.RESERVED:
@@ -171,13 +163,6 @@ class GateDataService:
                 raise BookingConflictException(
                     "Đặt chỗ đã quá thời hạn 60 phút.",
                     reason_code="BOOKING_ALREADY_EXPIRED",
-                )
-
-            user_tpl = tx.face_templates.get_active_user_template(booking.user_id)
-            if user_tpl is None or user_tpl.status != FaceTemplateStatus.ACTIVE:
-                raise GateOperationException(
-                    "Tài khoản chủ xe chưa có mẫu khuôn mặt hợp lệ đang hoạt động.",
-                    reason_code="USER_FACE_TEMPLATE_MISSING",
                 )
 
             # Ensure gate_events row exists before linking booking.checkin_event_id FK
@@ -202,18 +187,9 @@ class GateDataService:
             return {
                 "booking": updated_booking,
                 "vehicle": vehicle,
-                "user_template": user_tpl,
             }
 
         tx_res = self.uow.run_transactional(_tx)
-        user_tpl = tx_res["user_template"]
-        ref_vector = self.cipher.decrypt_embedding(
-            blob=user_tpl.embedding_blob,
-            metadata=user_tpl.encryption_metadata,
-            dtype=user_tpl.embedding_dtype,
-            size=user_tpl.embedding_size,
-            key_version=user_tpl.key_version,
-        )
         booking = tx_res["booking"]
         return {
             "booking_id": booking.booking_id,
@@ -223,10 +199,6 @@ class GateDataService:
             "slot_id": booking.slot_id,
             "status": booking.status.value,
             "checkin_event_id": event_id,
-            "reference_template_id": user_tpl.template_id,
-            "reference_embedding": ref_vector,
-            "reference_model_id": user_tpl.model_id,
-            "reference_model_version": user_tpl.model_version,
         }
 
     def confirm_booking_entry_permission(
@@ -294,14 +266,6 @@ class GateDataService:
                 raise SlotNotAvailableException(
                     f"Ô {slot.slot_id} không còn giữ quyền hợp lệ cho booking {booking_id}.",
                     reason_code="SLOT_HOLD_LOST",
-                )
-
-            # Verify reference user face template is still Active (not revoked)
-            user_tpl = tx.face_templates.get_active_user_template(booking.user_id)
-            if user_tpl is None or user_tpl.status != FaceTemplateStatus.ACTIVE:
-                raise GateOperationException(
-                    "Mẫu khuôn mặt tài khoản đã bị thu hồi trước khi hoàn tất cấp quyền vào.",
-                    reason_code="USER_FACE_TEMPLATE_REVOKED",
                 )
 
             # LOCK 4: sessions (check no live_plate exists)

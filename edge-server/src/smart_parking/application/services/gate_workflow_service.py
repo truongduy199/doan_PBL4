@@ -18,6 +18,7 @@ import base64
 import re
 import logging
 import threading
+import time
 import uuid
 from typing import Any, Callable, Deque, Dict, List, Optional, Tuple
 
@@ -68,6 +69,10 @@ class GateTurnContext:
     plate_outcome: Optional[PlateRecognitionOutcome] = None
     face_result: Optional[FacePipelineResult] = None
     requested_samples: int = 1
+    capture_deadlines: Dict[str, datetime] = field(default_factory=dict)
+    capture_round: int = 0
+    retry_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
 
 
 class GateWorkflowService:
@@ -96,6 +101,11 @@ class GateWorkflowService:
 
         self._lock = threading.RLock()
         self._inference_lock = threading.Lock()
+        self._gate_inference_waiters = 0
+        self._face_guidance = None
+        self._guidance_frame_key = None
+        self._guidance_last_started = None
+        self._guidance_interval_seconds = .5
         self._turns: Dict[str, GateTurnContext] = {}
         self._queue: Deque[str] = deque()
         self._active_event_id: Optional[str] = None
@@ -122,6 +132,8 @@ class GateWorkflowService:
     def _stop_camera_stream(self) -> None:
         session = self._camera_stream
         self._camera_stream = None
+        self._face_guidance = None
+        self._guidance_frame_key = None
         if session:
             self._send_camera_stream_control("STOP", session)
 
@@ -182,6 +194,45 @@ class GateWorkflowService:
             self._camera_images[camera_id]["frame_sequence"] = sequence
             return {"accepted": True, "stream": True, "camera_id": camera_id, "sequence": sequence}
 
+    def update_face_guidance(self, now_utc: Optional[datetime] = None) -> None:
+        """Best-effort, bounded UI feedback; gate inference has priority."""
+        now = now_utc or utc_now()
+        with self._lock:
+            session = self._camera_stream
+            image = self._camera_images.get("cam_face")
+            if (not session or now >= session["expires_at"] or not image
+                    or image.get("stream_id") != session["stream_id"]
+                    or (now - image["captured_at"]).total_seconds() > 3
+                    or self._gate_inference_waiters):
+                return
+            if self._guidance_last_started and (now - self._guidance_last_started).total_seconds() < self._guidance_interval_seconds:
+                return
+            key = (session["stream_id"], image.get("frame_sequence"))
+            if key == self._guidance_frame_key or not self._inference_lock.acquire(blocking=False):
+                return
+            self._guidance_last_started = now
+            self._guidance_frame_key = key
+            started = time.perf_counter()
+            jpeg = image["jpeg"]
+            captured_at = image["captured_at"]
+            gate = session["gate_id"]
+        try:
+            import cv2
+            frame = cv2.imdecode(np.frombuffer(jpeg, dtype=np.uint8), cv2.IMREAD_COLOR)
+            result = self.face_pipeline.stream_guidance(frame, roi=self.settings.gate_rois[("face", gate)])
+            with self._lock:
+                current = self._camera_stream
+                if current and current["stream_id"] == key[0] and current["expires_at"] > (now_utc or utc_now()):
+                    elapsed = time.perf_counter() - started
+                    self._guidance_interval_seconds = max(.5, elapsed * 4)
+                    self._face_guidance = {**result, "processing_ms": round(elapsed * 1000, 1),
+                                           "stream_id": key[0], "captured_at": captured_at,
+                                           "updated_at": now_utc or utc_now()}
+        except Exception:
+            logger.exception("Live face guidance failed")
+        finally:
+            self._inference_lock.release()
+
     def _expire_camera_images(self, now: datetime) -> None:
         for camera, image in list(self._camera_images.items()):
             if now >= image["expires_at"]:
@@ -232,6 +283,7 @@ class GateWorkflowService:
                                 captured_at=format_utc_iso(image["captured_at"]), expires_at=format_utc_iso(image["expires_at"]))
                     turn = self._turns.get(image["event_id"])
                     if turn:
+                        item.update(scan_state=turn.state, capture_round=turn.capture_round)
                         recognition: Dict[str, Any] = {}
                         if camera == "cam_plate" and turn.plate_outcome:
                             result = turn.plate_outcome
@@ -253,6 +305,21 @@ class GateWorkflowService:
                     if turn and turn.last_decision:
                         item["decision"] = turn.last_decision.get("decision")
                         item["reason_code"] = turn.last_decision.get("reason_code")
+                current = self._turns.get((self._camera_stream or {}).get("event_id"))
+                if current and current.state in ("RETRY_WAIT", "QUEUED", "CAPTURING", "DECIDING"):
+                    item.update(scan_state=current.state, capture_round=current.capture_round,
+                                decision="Scanning", reason_code=(current.last_decision or {}).get("reason_code"))
+                if camera == "cam_face" and self._camera_stream:
+                    turn = self._turns.get(self._camera_stream["event_id"])
+                    guidance = self._face_guidance
+                    if self._gate_inference_waiters or (turn and turn.state == "DECIDING"):
+                        item["guidance"] = {"ok": False, "reason_code": "GATE_PROCESSING", "message": "Đang nhận diện lượt xe. Giữ nguyên vị trí."}
+                    elif (guidance and guidance["stream_id"] == self._camera_stream["stream_id"]
+                          and (now - guidance["captured_at"]).total_seconds() <= 3):
+                        item["guidance"] = {**guidance, "captured_at": format_utc_iso(guidance["captured_at"]),
+                                            "updated_at": format_utc_iso(guidance["updated_at"])}
+                    else:
+                        item["guidance"] = {"ok": False, "reason_code": "WAITING_FRAME", "message": "Đang chờ ảnh mới để hướng dẫn tư thế."}
                 cameras.append(item)
             session = self._camera_stream
             return {"cameras": cameras, "server_time": format_utc_iso(now), "retention_seconds": 30,
@@ -429,7 +496,7 @@ class GateWorkflowService:
 
             if len(self._queue) >= self.settings.max_pending_turns:
                 raise DomainException("Recognition queue is full.", reason_code="GATE_QUEUE_FULL", http_status=503)
-            if any(t.gate_id == clean_gate and t.state in ("QUEUED", "CAPTURING", "DECIDING", "APPROVED", "REVIEW") for t in self._turns.values()):
+            if any(t.gate_id == clean_gate and t.state in ("QUEUED", "RETRY_WAIT", "CAPTURING", "DECIDING", "APPROVED", "REVIEW") for t in self._turns.values()):
                 raise DomainException("Gate already has a live turn.", reason_code="GATE_BUSY", http_status=409)
 
             roi_name = f"ROI_{clean_gate}"
@@ -488,31 +555,32 @@ class GateWorkflowService:
 
     def _request_camera_captures_for_turn(self, turn: GateTurnContext, now_dt: datetime) -> None:
         turn.requested_samples = self.settings.capture_sample_count
-        self._start_camera_stream(turn.event_id, turn.gate_id, now_dt)
-        plate_req = {
-            "event_id": turn.event_id,
-            "gate_id": turn.gate_id,
-            "roi": turn.roi,
-            "request_id": f"req-plate-{turn.event_id}",
-            "frame_id": f"req-plate-{turn.event_id}",
-            "ttl_ms": self.settings.capture_timeout_seconds * 1000,
-            "issued_at": format_utc_iso(now_dt),
-            "expires_at_ms": int((now_dt.timestamp() + self.settings.capture_timeout_seconds) * 1000),
-        }
-        face_req = {
-            "event_id": turn.event_id,
-            "gate_id": turn.gate_id,
-            "roi": turn.roi,
-            "request_id": f"req-face-{turn.event_id}",
-            "frame_id": f"req-face-{turn.event_id}",
-            "ttl_ms": self.settings.capture_timeout_seconds * 1000,
-            "issued_at": format_utc_iso(now_dt),
-            "expires_at_ms": int((now_dt.timestamp() + self.settings.capture_timeout_seconds) * 1000),
-        }
-        for sample in range(1, turn.requested_samples + 1):
-            suffix = "" if sample == 1 else f"-{sample}"
-            self._publish_mqtt(TOPIC_CAM_PLATE_CAPTURE, {**plate_req, "frame_id": plate_req["frame_id"] + suffix})
-            self._publish_mqtt(TOPIC_CAM_FACE_CAPTURE, {**face_req, "frame_id": face_req["frame_id"] + suffix})
+        turn.capture_round += 1
+        turn.received_frame_keys.clear()
+        turn.capture_deadlines.clear()
+        if not self._camera_stream or self._camera_stream["event_id"] != turn.event_id:
+            self._start_camera_stream(turn.event_id, turn.gate_id, now_dt)
+        # One outstanding upload per camera avoids overflowing the ESP capture queue.
+        for camera in ("plate", "face"):
+            self._send_capture_sample(turn, camera, 1, now_dt)
+
+    def _send_capture_sample(self, turn: GateTurnContext, camera: str, sample: int, now: datetime) -> None:
+        round_suffix = "" if turn.capture_round == 1 else f"-r{turn.capture_round}"
+        base = f"req-{camera}-{turn.event_id}{round_suffix}"
+        # ESP accepts individual capture leases below 15 seconds; the whole batch may take longer.
+        deadline = min(turn.capture_started_at + timedelta(seconds=self.settings.capture_timeout_seconds),
+                       now + timedelta(seconds=14))
+        remaining_ms = int((deadline - now).total_seconds() * 1000)
+        if remaining_ms <= 0:
+            return
+        frame_id = base + ("" if sample == 1 else f"-{sample}")
+        turn.capture_deadlines[f"cam_{camera}:{frame_id}"] = deadline
+        self._publish_mqtt(TOPIC_CAM_PLATE_CAPTURE if camera == "plate" else TOPIC_CAM_FACE_CAPTURE, {
+            "event_id": turn.event_id, "gate_id": turn.gate_id, "roi": turn.roi,
+            "request_id": base, "frame_id": frame_id,
+            "ttl_ms": remaining_ms, "issued_at": format_utc_iso(now),
+            "expires_at_ms": int(deadline.timestamp() * 1000),
+        })
 
     def _finish_active_turn(self, event_id: str, now_utc: Optional[datetime] = None) -> None:
         now_dt = now_utc or utc_now()
@@ -614,7 +682,8 @@ class GateWorkflowService:
 
             clean_cam = "cam_plate" if clean_cam in ("plate", "cam_plate") else "cam_face"
             expected_device = self.settings.controller_device_id if clean_cam == "cam_plate" else self.settings.face_camera_device_id
-            expected_frame = f"req-{'plate' if clean_cam == 'cam_plate' else 'face'}-{event_id}"
+            round_suffix = "" if turn.capture_round == 1 else f"-r{turn.capture_round}"
+            expected_frame = f"req-{'plate' if clean_cam == 'cam_plate' else 'face'}-{event_id}{round_suffix}"
             expected_frames = {expected_frame + ("" if sample == 1 else f"-{sample}")
                                for sample in range(1, turn.requested_samples + 1)}
             if device_id != expected_device or frame_id not in expected_frames or gate_id != turn.gate_id or roi != turn.roi:
@@ -622,6 +691,13 @@ class GateWorkflowService:
             if f"{clean_cam}:{frame_id}" in turn.received_frame_keys and turn.state in ("CAPTURING", "DECIDING", "APPROVED", "REVIEW", "COMPLETED"):
                 return {"accepted": True, "duplicate_frame": True, "event_id": event_id,
                         "workflow_decision": turn.last_decision}
+            received_count = len(turn.plate_frames) if clean_cam == "cam_plate" else len(turn.face_frames)
+            next_sample = received_count + 1
+            next_frame = expected_frame + ("" if next_sample == 1 else f"-{next_sample}")
+            if frame_id != next_frame:
+                raise DomainException("Sample was not requested yet.", reason_code="CAPTURE_METADATA_MISMATCH", http_status=409)
+            if now_dt >= turn.capture_deadlines.get(f"{clean_cam}:{frame_id}", now_dt):
+                raise DomainException("Capture request expired.", reason_code="CAPTURE_EXPIRED", http_status=409)
             if turn.state != "CAPTURING" or self._active_event_id != event_id or turn.capture_started_at is None:
                 raise DomainException("Capture is no longer active.", reason_code="STALE_OR_UNKNOWN_EVENT_ID", http_status=409)
             if (now_dt - turn.capture_started_at).total_seconds() > self.settings.capture_timeout_seconds:
@@ -665,6 +741,10 @@ class GateWorkflowService:
             else:
                 turn.face_frames.append(frame_bgr)
 
+            received_count = len(turn.plate_frames) if clean_cam == "cam_plate" else len(turn.face_frames)
+            if received_count < turn.requested_samples:
+                self._send_capture_sample(turn, "plate" if clean_cam == "cam_plate" else "face", received_count + 1, now_dt)
+
             ready_to_evaluate = (
                 auto_evaluate_when_ready
                 and not turn.evaluated
@@ -691,17 +771,23 @@ class GateWorkflowService:
         }
 
     def evaluate_turn(self, event_id: str, **kwargs: Any) -> Dict[str, Any]:
-        with self._inference_lock:
-            try:
-                return self._evaluate_turn_impl(event_id, **kwargs)
-            except Exception as exc:
-                with self._lock:
-                    turn = self._turns.get(event_id)
-                    if turn and turn.state == "DECIDING":
-                        reason = exc.reason_code if isinstance(exc, DomainException) else "AI_WORKFLOW_ERROR"
-                        logger.exception("Gate decision failed for %s", event_id)
-                        return self._mark_review(turn, reason, kwargs.get("now_utc") or utc_now())
-                raise
+        with self._lock:
+            self._gate_inference_waiters += 1
+        try:
+            with self._inference_lock:
+                try:
+                    return self._evaluate_turn_impl(event_id, **kwargs)
+                except Exception as exc:
+                    with self._lock:
+                        turn = self._turns.get(event_id)
+                        if turn and turn.state == "DECIDING":
+                            reason = exc.reason_code if isinstance(exc, DomainException) else "AI_WORKFLOW_ERROR"
+                            logger.exception("Gate decision failed for %s", event_id)
+                            return self._mark_review(turn, reason, kwargs.get("now_utc") or utc_now())
+                    raise
+        finally:
+            with self._lock:
+                self._gate_inference_waiters -= 1
 
     def _evaluate_turn_impl(
         self,
@@ -755,6 +841,14 @@ class GateWorkflowService:
         with self._lock:
             if turn.state != "DECIDING":
                 raise DomainException("Turn cancelled.", reason_code="TURN_CANCELLED", http_status=409)
+            recoverable_plate = {"INVALID_PLATE_IMAGE", "NO_PLATE_DETECTED", "OCR_EMPTY_TEXT",
+                                 "INVALID_PLATE_FORMAT", "PLATE_VOTING_CONFLICT", "PLATE_INSUFFICIENT_CONSENSUS"}
+            recoverable_face = {"NO_FACE", "FACE_QUALITY_FAILED", "FACE_REVIEW_REQUIRED", "FACE_SAMPLES_INCONSISTENT"}
+            retry_reason = (plate_out.reason_code if not plate_out.ok and plate_out.reason_code in recoverable_plate
+                            else face_out.reason_code if plate_out.ok and not face_out.ok and face_out.reason_code in recoverable_face
+                            else None)
+            if retry_reason and self._vehicle_waiting(turn, now_dt):
+                return self._schedule_retry(turn, retry_reason, now_dt)
             if gate_id == GateId.IN.value:
                 decision = self._process_gate_in_decision(
                     event_id=event_id,
@@ -774,6 +868,8 @@ class GateWorkflowService:
             turn.evaluated = True
             turn.last_decision = decision
             turn.state = "APPROVED" if decision.get("decision") == "Approved" else "REVIEW"
+            if turn.state == "APPROVED":
+                turn.approved_at = now_dt
             turn.plate_frames.clear()
             turn.face_frames.clear()
             if decision.get("decision") != "Approved":
@@ -783,6 +879,30 @@ class GateWorkflowService:
                 self._advance_queue_locked(now_dt)
 
         return decision
+
+    def _vehicle_waiting(self, turn: GateTurnContext, now: datetime) -> bool:
+        device = self._device_status.get(turn.device_id, {})
+        seen = device.get("received_at")
+        if not seen or not device.get("online") or device.get("boot_id") != turn.boot_id:
+            return False
+        age = (now - datetime.fromisoformat(seen.replace("Z", "+00:00"))).total_seconds()
+        gate = turn.gate_id.lower()
+        return (0 <= age < 20 and device.get(f"gate_{gate}_event_id") == turn.event_id
+                and device.get(f"gate_{gate}_state") in ("Waiting_backend", "Review_required"))
+
+    def _schedule_retry(self, turn: GateTurnContext, reason: str, now: datetime) -> Dict[str, Any]:
+        # Keep one bounded batch in RAM; never persist an incomplete recognition as a session.
+        turn.state = "RETRY_WAIT"
+        turn.evaluated = False
+        turn.retry_at = now + timedelta(seconds=2)
+        turn.plate_frames.clear()
+        turn.face_frames.clear()
+        turn.last_decision = {"event_id": turn.event_id, "decision": "Scanning",
+                              "reason_code": reason, "capture_round": turn.capture_round}
+        if self._active_event_id == turn.event_id:
+            self._active_event_id = None
+        self._advance_queue_locked(now)
+        return turn.last_decision
 
     def _mark_review(self, turn: GateTurnContext, reason: str, now_dt: datetime) -> Dict[str, Any]:
         """Do not release a DB slot/session when physical passage is uncertain."""
@@ -832,10 +952,19 @@ class GateWorkflowService:
                 age = (now - turn.created_at).total_seconds()
                 capture_age = (now - (turn.capture_started_at or now)).total_seconds()
                 if turn.state == "CAPTURING" and capture_age > self.settings.capture_timeout_seconds:
-                    self._mark_review(turn, "CAPTURE_TIMEOUT", now)
-                elif turn.state in ("QUEUED", "DECIDING") and age > self.settings.gate_turn_timeout_seconds:
+                    if self._vehicle_waiting(turn, now):
+                        self._schedule_retry(turn, "CAPTURE_TIMEOUT", now)
+                    else:
+                        self._mark_review(turn, "CAPTURE_TIMEOUT", now)
+                elif turn.state == "RETRY_WAIT" and now >= turn.retry_at:
+                    if self._vehicle_waiting(turn, now):
+                        turn.state = "QUEUED"
+                        self._queue.append(turn.event_id)
+                    else:
+                        self._mark_review(turn, "CONTROLLER_PRESENCE_LOST", now)
+                elif turn.state in ("QUEUED", "DECIDING") and age > self.settings.gate_turn_timeout_seconds and not (turn.capture_round and self._vehicle_waiting(turn, now)):
                     self._mark_review(turn, "GATE_TURN_TIMEOUT", now)
-                elif turn.state == "APPROVED" and age > self.settings.gate_turn_timeout_seconds:
+                elif turn.state == "APPROVED" and (now - (turn.approved_at or turn.created_at)).total_seconds() > self.settings.gate_turn_timeout_seconds:
                     turn.state = "PASSAGE_UNCERTAIN"
                     turn.plate_frames.clear()
                     turn.face_frames.clear()
@@ -864,7 +993,7 @@ class GateWorkflowService:
                                 "age_seconds": int(age) if age is not None else None})
             return {"ai_status": self.ai_status, "active_event_id": self._active_event_id,
                     "queue_length": len(self._queue), "devices": devices,
-                    "turns": [{"event_id": t.event_id, "gate_id": t.gate_id, "state": t.state,
+                    "turns": [{"event_id": t.event_id, "gate_id": t.gate_id, "state": t.state, "capture_round": t.capture_round,
                                "reason_code": (t.last_decision or {}).get("reason_code"),
                                "created_at": format_utc_iso(t.created_at)} for t in self._turns.values()],
                     "commands": list(self._commands.values())[-20:]}
@@ -1014,30 +1143,6 @@ class GateWorkflowService:
         # Case A: Pre-booked vehicle arrival (Section V.3 & IV.5)
         if checkin_info is not None:
             booking_id = checkin_info["booking_id"]
-            verify_out = self.face_verifier.verify_with_metadata(
-                reference_embedding=checkin_info["reference_embedding"],
-                candidate_embedding=face_out.embedding,
-                ref_model_id=checkin_info.get("reference_model_id"),
-                cand_model_id=face_out.model_id,
-                ref_model_version=checkin_info.get("reference_model_version"),
-                cand_model_version=face_out.model_version,
-            )
-
-            if verify_out.decision != "ACCEPT":
-                rev = self.gate_data_service.flag_gate_review_required(
-                    event_id=event_id,
-                    gate_id=GateId.IN.value,
-                    device_id=device_id,
-                    reason_code=verify_out.reason_code,
-                    booking_id=booking_id,
-                    liveness_status=face_out.liveness_status,
-                    liveness_score=face_out.liveness_score,
-                    now_utc=now_dt,
-                )
-                cmd_id = str(uuid.uuid4())
-                self._emit_gate_command(GateId.IN.value, event_id, cmd_id, "REVIEW_REQUIRED", reason_code=verify_out.reason_code, now_dt=now_dt)
-                return {**rev, "similarity_score": verify_out.similarity}
-
             cmd_id = str(uuid.uuid4())
             approved = self.gate_data_service.confirm_booking_entry_permission(
                 booking_id=booking_id,
@@ -1060,7 +1165,6 @@ class GateWorkflowService:
                 **approved,
                 "decision": "Approved",
                 "flow_type": "BOOKING",
-                "similarity_score": verify_out.similarity,
             }
 
         # Case B: Walk-in guest vehicle arrival (Section V.4 & IV.6)

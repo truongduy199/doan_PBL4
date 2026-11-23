@@ -234,10 +234,12 @@ def test_burst_capture_waits_for_three_unique_frames_from_both_cameras():
         runtime.settings.capture_sample_count = 3
         runtime.detect("burst-event")
         commands = [(topic, body) for topic, body in runtime.wf.published_mqtt_messages if topic.endswith("/capture")]
-        assert len(commands) == 6
+        assert len(commands) == 2
         runtime.wf.evaluate_turn = Mock(return_value={"decision": "Review_required"})
         _, encoded = cv2.imencode(".jpg", np.full((120, 160, 3), 127, np.uint8))
-        for index, (topic, body) in enumerate(commands):
+        for index in range(6):
+            commands = [(topic, body) for topic, body in runtime.wf.published_mqtt_messages if topic.endswith("/capture")]
+            topic, body = commands[index]
             camera = "cam_plate" if "/plate/" in topic else "cam_face"
             args = dict(image_bytes=encoded.tobytes(), event_id="burst-event", camera_id=camera,
                         device_id="s3_plate_ctrl" if camera == "cam_plate" else "s3_face_cam",

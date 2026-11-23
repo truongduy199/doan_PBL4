@@ -1,5 +1,29 @@
 # Kết quả kiểm tra tích hợp phần mềm
 
+## Kết nối lại khi cấp nguồn ngoài - 23/11/2026
+
+- Sau reset, backend/Mosquitto vẫn chạy và tài khoản MQTT hai bo xác thực thành công. Laptop vẫn ở hotspot 2,4 GHz và IP cũ. Log USB tạm thời của bo điều khiển cho thấy Wi-Fi đã kết nối, camera sẵn sàng nhưng MQTT trả `-2` (chưa mở được TCP tới broker); chưa xác định nguyên nhân sâu hơn của lần lỗi TCP ban đầu.
+- Kết nối sau đó tự phục hồi. Không nạp firmware hoặc thay đổi firewall/cấu hình mạng trong đợt chẩn đoán này. Không kết luận lỗi nguồn chỉ từ việc thiếu cổng COM khi dùng nguồn ngoài.
+- Người dùng đã rút USB chẩn đoán và cấp nguồn ngoài cho cả hai bo. Windows không còn cổng COM, nhưng heartbeat mới của cả hai bo tiếp tục tăng, camera sẵn sàng và cả bốn IR có dữ liệu mới. Luồng xem kiểm tra nhận được JPEG từ cả `cam_plate` và `cam_face` qua Wi-Fi. USB laptop không phải điều kiện vận hành.
+
+## Reset dữ liệu lượt xe giữ tài khoản - 23/11/2026
+
+- Thêm CLI Python xem trước mặc định và wrapper PowerShell dừng/khởi động backend khi áp dụng. Người dùng xác nhận đã ngắt nguồn cả hai ESP trước khi reset thật.
+- Reset trên MySQL thật đã xóa một phiên, một mẫu mặt phiên, hai đặt chỗ, 47 sự kiện cổng và nhật ký thử. Bốn ô trở về `Unknown`, xóa liên kết phiên/booking và dữ liệu boot/sequence cũ để chờ IR thật.
+- Đối chiếu trước/sau xác nhận dữ liệu tài khoản (gồm password hash), BLOB mẫu mặt tài khoản, danh tính xe, mã ô/cảm biến và các cấu hình khác không thay đổi. Biển số xe USER thử nghiệm và riêng `DEMO_VEHICLE_PLATE` được đổi theo yêu cầu; ADMIN/USER vẫn đăng nhập được.
+- Bổ sung kiểm tra định dạng sê-ri chữ+số để chuỗi biển số đăng ký mới không bị chặn. Chuẩn hóa giữ chữ/số viết hoa và bỏ dấu chấm, gạch ngang, khoảng trắng.
+- **78 tests passed** với DB kiểm thử trong RAM. Có kiểm tra preview không đổi dữ liệu, xóa đúng phạm vi, giữ nguyên tài khoản/template, rollback sau lỗi giữa chừng, không đoán xe khi có nhiều xe và từ chối biển số trùng xe khác. PowerShell parse đạt. Sau reset thật, backend báo AI READY, không còn lượt/phiên cũ.
+- Hướng dẫn: [Reset dữ liệu test](../setup/reset-test-data.md).
+
+## AI nhận diện và lưu mẫu phiên thật - 23/11/2026
+
+- Sửa ảnh phản chiếu ngang ở cảm biến; ảnh AI dùng UXGA 1600×1200, xem MJPEG giữ VGA. YOLO/OCR được nạp sẵn khi backend khởi động và dùng kích thước phát hiện 1280 để giữ chi tiết biển số nhỏ. Hai firmware build/nạp và dashboard build đạt.
+- Camera thật đã OCR đúng biển số mô hình; nhận diện khuôn mặt/liveness đạt. Người dùng thử IR IN, xác nhận barie mở và xe vào A1. MySQL có phiên `Active`/`Parked_confirmed`, kèm mẫu `buffalo_l` 512-D float32, liveness `Passed`, ciphertext 2064 byte và metadata `AES-256-GCM`. Đọc/giải mã mẫu trong RAM trả vector chuẩn L2 bằng 1; không in hoặc lưu vector/ảnh ra file.
+- Thử OUT thực tế còn có các lượt OCR thiếu/nhầm ký tự, thiếu/nhiều mặt, lỗi khung liveness hoặc điểm đối chiếu chưa đạt. Các mẫu mới của đúng người theo xác nhận người dùng có điểm 0,5604..0,5975; ảnh dashboard cho thấy một lượt đạt 0,614, vẫn dưới ngưỡng 0,65. Phiên chưa được đóng trong đợt kiểm tra này; không thay mẫu vào hoặc hạ ngưỡng để ép mở.
+- Bổ sung ba ảnh mỗi camera cho lượt xe, deadline 8 giây. OCR cần ít nhất hai ảnh thống nhất; mặt cần ít nhất hai mẫu hợp lệ và nhất quán trước khi tổng hợp. Giữ chế độ một ảnh để tương thích; ảnh trùng/ID ngoài danh sách không tăng số mẫu.
+- Dashboard tách kết quả đọc biển số, trích xuất đặc trưng, liveness, lưu mẫu và điểm đối chiếu. Nhãn cũ “Khuôn mặt hợp lệ” được đổi thành “Đã trích xuất đặc trưng khuôn mặt”; đối chiếu được ghi rõ đã đạt/chưa được duyệt để tránh nhầm với xác thực thành công.
+- Bộ kiểm thử hiện tại **71 passed**, DB kiểm thử trong RAM; bao gồm burst, bỏ phiếu OCR, ngăn gộp các mẫu mặt thiếu nhất quán, model readiness và không lộ embedding qua API. Trạng thái `READY` yêu cầu nạp được cả model biển số và khuôn mặt.
+
 ## Chuyển sang MJPEG - 23/11/2026
 
 - Hai bo đã build/nạp và xác minh hash; heartbeat của COM5/COM6 báo `stream_transport=mjpeg`. Cả backend và dashboard đã cập nhật. Ảnh AI vẫn chụp và gửi riêng qua `/api/device/images`; kiểm tra chụp tĩnh sau stream nhận được ảnh mới từ cả hai camera.
@@ -65,3 +89,15 @@ Không dùng các kết quả trên để công bố độ chính xác AI, FPS, 
 - [Môi trường build firmware](../../firmware/platformio.ini)
 - [Kiểm tra trước khi chạy](../../scripts/check_environment.py)
 - [Khởi động backend](../../scripts/start_backend.ps1)
+### 23/11/2026 — Tự nhận diện lại khi xe còn chờ
+
+- Sửa backend: timeout chụp và lỗi OCR/chất lượng ảnh có thể phục hồi chuyển sang chờ thử lại ít nhất 2 giây, cần heartbeat controller mới, cùng boot/event/cổng đang chờ. Nhận ảnh tuần tự từng camera thay vì dồn 3 lệnh vào hàng đợi ESP có sức chứa 2. Ảnh vòng cũ không được dùng lại. Chưa nhận diện đạt thì chưa ghi phiên/chiếm ô.
+- Bổ sung kiểm tra timeout có nhường cổng còn lại, OCR lỗi rồi đọc đạt và cấp ô/mở một lần, xe rời IR, heartbeat hết hạn, ảnh vòng cũ, thời hạn qua cổng sau khi xe phải chờ quét lâu. Giữ kiểm tra người thật và ngưỡng đối chiếu.
+- Bộ kiểm tra toàn hệ thống: 82 passed trên DB giả cô lập; đặt DEMO_VEHICLE_PLATE=43A12345 riêng tiến trình kiểm tra để khớp fixture cũ. Sau bổ sung thời hạn duyệt: nhóm runtime/camera 40 passed. Dashboard TypeScript/Vite build đạt. Không thay biển số thật 85H650346 hoặc dữ liệu DB thật.
+- Đã khởi động lại backend; health và /admin HTTP 200, AI READY, MQTT connected, cả hai bo online bằng nguồn ngoài. Không sửa hoặc nạp firmware trong lượt này.
+- Lượt thật đã thấy vòng 1 CAPTURE_TIMEOUT tự chuyển vòng 2, hai camera tiếp tục gửi hình. Ảnh biển số đến muộn bị HTTP 409; tăng CAPTURE_TIMEOUT_SECONDS riêng môi trường thực từ 8 lên 30 giây, lệnh chụp riêng vẫn tối đa 14 giây để tương thích firmware giới hạn 15 giây. Chưa xác nhận nhận diện/cấp ô thành công sau tăng thời gian: chờ người dùng bỏ vật khỏi IR rồi kích hoạt lượt mới. Lượt CAPTURE_TIMEOUT cũ vẫn ở Review_required trên bo, không tự dựng lại hoặc tự duyệt sau khi backend khởi động lại.
+- Xác nhận thực tế sau tăng thời gian lúc 09:33 ngày 23/11: IR IN kích hoạt, nhận đủ bộ ảnh, AI duyệt sau khoảng 6 giây. OCR `92V576492` / `92V5-764.92`, người dùng xác nhận đúng biển in đang thử. Khuôn mặt tổng hợp từ 2 mẫu hợp lệ, kiểm tra người thật Passed; tạo phiên `72c01ac2-4a1f-4748-825f-74c92a64a190`, cấp B2. Lệnh OPEN duy nhất được controller ACK_ACCEPTED / SERVO_OPEN_ISSUED. Sau khi qua cổng, lượt COMPLETED, controller Idle; phiên Active / Parked_confirmed tại B2. Đây là lượt vãng lai; biển tài khoản thử nghiệm 85H650346 được giữ nguyên.
+- Demo đặt trước A1 ngày 23/11/2026: biển `85H650346`, booking `6d62eeb0-41e6-4cd2-b5f9-1f826e9bb5b6`. Entry event `ev-bfdbc25e0-IN-001fb0ad-00000007`: BOOKING_ENTRY_APPROVED, cấp A1, OPEN ACK_ACCEPTED, lưu mặt thực tế 2 mẫu Passed vào phiên `92825047-42cf-46ce-8fb3-c43821e4f832`; lúc 09:46:21 xe qua cổng, A1 nhận xe và phiên Active/Parked_confirmed, booking Checked_in. Exit event `ev-bfdbc25e0-OUT-0020e698-00000008`: đọc đúng biển, 3 mẫu mặt Passed, similarity 0.7881, EXIT_FACE_MATCH_APPROVED; OPEN ACK_ACCEPTED. Lúc 09:47:23 xe qua cổng ra: lượt COMPLETED, phiên Closed có exit_time, booking Completed, cảm biến A1 Free. Theo dõi qua API, không can thiệp mở cổng hay sửa dữ liệu lượt xe.
+- Demo xe vãng lai B2 ra ngày 23/11/2026: phiên `72c01ac2-4a1f-4748-825f-74c92a64a190`, biển `92V576492`. Lần đầu FACE_QUALITY_FAILED do mặt quay ngang, barie giữ đóng, phiên vẫn Active; sau khi người dùng để IR OUT trống đã xác nhận controller Idle và lượt cũ CANCELLED. Lượt mới `ev-bfdbc25e0-OUT-00258cba-0000000a` đọc đạt, mặt 3 mẫu Passed, similarity 0.8847, EXIT_FACE_MATCH_APPROVED, OPEN ACK_ACCEPTED/SERVO_OPEN_ISSUED. Xe ra lúc 09:52:19, lượt COMPLETED, phiên Closed có exit_time, B2 Free. Chỉ theo dõi; không mở thủ công hay thay mẫu mặt/ngưỡng.
+- Cảnh báo tư thế từ MJPEG ngày 23/11/2026: triển khai worker detector/quality riêng, tối đa 2 Hz, thích nghi theo thời gian xử lý, dùng ảnh mới nhất và ưu tiên inference cổng. Dashboard hiển thị hướng dẫn riêng, không coi POSE_READY là duyệt danh tính. Bộ kiểm tra đầy đủ 87 passed; sau bổ sung kiểm tra giảm tần suất, nhóm hướng dẫn 4 passed; TypeScript/Vite build đạt. Kiểm tra cover detector-only không lấy identity, nhiều mặt/không mặt/tư thế, ảnh mới nhất/throttle, ưu tiên gate, kết quả quá hạn/stream đổi/dừng, không tạo phiên hoặc lệnh cổng.
+- Thử stream thật 10:03–10:04: API trả WAITING_FRAME, NO_FACE, mặt sát mép; lượt tiếp theo người dùng quay mặt rồi nhìn thẳng, nhận FACE_QUALITY_FAILED (quay ngang) → POSE_READY. Thời gian mẫu detector/quality khoảng 43–132 ms, median lượt đầu 67.9 ms; hai bo tiếp tục gửi ảnh. Chỉ thử preview, không tạo lượt xe hoặc phát OPEN, không thay dữ liệu đã demo. Backend và dashboard đã cập nhật; không nạp lại firmware. Đây là đo khi preview, chưa phải đo tải đồng thời với một lượt xe thật mới.

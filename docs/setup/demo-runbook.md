@@ -1,5 +1,18 @@
 # Demo Runbook & Quy Trình Test Khi Lắp Phần Cứng Thật (PBL4 Smart Parking IoT)
 
+Trước lượt demo mới, dùng [reset dữ liệu lượt xe](reset-test-data.md) để giữ tài khoản/mẫu mặt tài khoản và cấu hình, thay vì xóa toàn bộ database.
+
+## Luồng AI với hai S3 hiện hành
+
+1. Cấp nguồn hai bo, chạy Mosquitto/backend và mở dashboard. Thiết bị phải online, AI báo READY, IR ô đỗ có dữ liệu mới. Backend nạp sẵn cả YOLO/OCR và Buffalo-L/liveness; không chờ lượt xe đầu mới nạp model.
+2. Camera biển số đặt sao cho chữ đúng chiều, không phản chiếu, đủ lớn và không chói. Camera khuôn mặt chỉ thấy một người, nhìn thẳng; chừa nền quanh đầu, không dí mặt sát camera. Xem thử/chụp kiểm tra trên dashboard không tạo phiên hoặc mở cổng.
+3. Cấu hình triển khai `CAPTURE_SAMPLE_COUNT=3`, `CAPTURE_TIMEOUT_SECONDS=8`. Mỗi IR cổng tạo một lượt và yêu cầu ba JPEG mới từ mỗi camera. Ít nhất hai ảnh biển số phải thống nhất; ít nhất hai ảnh khuôn mặt phải đạt chất lượng/liveness và nhất quán trước khi tổng hợp mẫu. Ngưỡng đối chiếu giữ nguyên.
+4. Khách vãng lai vào: IR IN trống ít nhất hai giây trước lượt mới. Khi xe tới, AI đọc biển số và mặt; backend tạo phiên `Entry_pending`, lưu mẫu khuôn mặt 512-D mã hóa AES-256-GCM theo phiên rồi mới phát OPEN. Xe qua IR và vào đúng ô OLED chỉ định sẽ chuyển `Active`/`Parked_confirmed`.
+5. Xe ra: OCR phải đọc đúng biển số phiên đang hoạt động; khuôn mặt mới phải đạt liveness và đối chiếu với **mẫu phiên lúc vào**. Chỉ khi đạt mới phát OPEN. Xe ra khỏi IR OUT mới đóng phiên và đặt hạn lưu mẫu theo cấu hình retention.
+6. Nếu chưa đạt, xem kết quả riêng dưới từng camera: OCR thô, lý do lỗi mặt/liveness, điểm đối chiếu và trạng thái lưu mẫu. Đưa xe khỏi IR để kết thúc lượt lỗi rồi thử lại; không nhập tay biển số hoặc thay mẫu để ép cổng mở.
+
+Luồng khách vãng lai không cần seed mẫu mặt tài khoản trước. Luồng đặt chỗ cần mẫu tài khoản hợp lệ và có bước đối chiếu khi vào. Hướng dẫn cũ bên dưới chỉ tham khảo; không dùng các bước DevKit/Serial/ba camera cho mô hình hai S3.
+
 > Cấu hình và trình tự tích hợp hiện hành: [Hướng dẫn tích hợp hệ thống](../setup/system-integration.md). Firmware thật dùng HTTP/MQTT; Serial i/o chỉ bật trong môi trường Wokwi. Các đoạn hướng dẫn DevKit/Serial/ba camera phía dưới là mô tả cũ, không dùng để đấu nối hoặc triển khai bản hai S3.
 
 Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi ghép **Phần cứng (ESP32 + 4 cảm biến IR + Barie + Camera)**, **AI nhận diện biển số/khuôn mặt**, **Điều phối cổng/MQTT** và **Database MySQL + FastAPI + Web User** để kiểm thử tích hợp và chạy demo bảo vệ đồ án.
@@ -75,3 +88,6 @@ Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi
    ```powershell
    & "C:\xampp\mysql\bin\mysql.exe" -h 127.0.0.1 -P 3306 -u root --default-character-set=utf8mb4 smart_parking_pbl4 < backup_smart_parking_demo.sql
    ```
+### Xe đặt trước: nhận ô theo biển số, lưu mặt lúc vào
+
+Tài khoản đặt chỗ không cần đăng ký mẫu mặt. Đặt ô A1 bằng tài khoản có xe 85H650346, sau đó đưa đúng biển xe và người lái trước hai camera rồi kích hoạt IR IN. Backend nhận diện biển số, kiểm tra đặt chỗ còn hiệu lực, lấy khuôn mặt đạt chất lượng và kiểm tra người thật, lưu mẫu mặt mã hóa vào phiên rồi cấp đúng ô đặt trước. Khi ra, so sánh biển số và khuôn mặt với phiên lúc vào; không dùng mẫu mặt tài khoản. Nếu chưa lấy được mặt hợp lệ thì chưa mở barie.

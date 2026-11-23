@@ -409,7 +409,7 @@ class SystemAcceptanceTests(unittest.TestCase):
             event_id="EV-GATE-IN-001",
             now_utc=t_arr,
         )
-        self.assertEqual(checkin["reference_embedding"].shape, (512,))
+        self.assertNotIn("reference_embedding", checkin)
 
         # Live camera captures driver face vector at Gate IN (Liveness Passed)
         entry_session_vector = make_deterministic_l2_vector(seed=7777)

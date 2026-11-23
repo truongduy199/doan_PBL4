@@ -94,6 +94,36 @@ class FacePipeline:
             return frame_bgr
         return frame_bgr[y1:y2, x1:x2].copy()
 
+    def stream_guidance(self, frame_bgr: np.ndarray, *, roi=None) -> Dict[str, Any]:
+        """Detection/quality only: never extract identity or run liveness for UI hints."""
+        from types import SimpleNamespace
+        app = getattr(self.adapter, "app", None)
+        if app is None:
+            return {"ok": False, "reason_code": "AI_MODEL_UNAVAILABLE", "message": "Camera guidance unavailable"}
+        target = self.crop_roi(frame_bgr, roi)
+        boxes, landmarks = app.det_model.detect(target, max_num=0, metric="default")
+        if boxes is None or len(boxes) == 0:
+            return {"ok": False, "reason_code": "NO_FACE", "message": "Chưa thấy khuôn mặt. Đưa mặt vào khung hình."}
+        if len(boxes) != 1:
+            return {"ok": False, "reason_code": "MULTIPLE_FACES", "message": "Chỉ một người đứng trước camera."}
+        face = SimpleNamespace(bbox=boxes[0, :4], det_score=float(boxes[0, 4]),
+                               kps=landmarks[0] if landmarks is not None else None)
+        quality = FaceQualityChecker.evaluate(face, target, min_face_size=self.min_face_size,
+                                             min_blur_var=max(20.0, self.min_blur_var))
+        if not quality.passed:
+            return {"ok": False, "reason_code": quality.reason_code, "message": quality.message}
+        x1, y1, x2, y2 = face.bbox
+        h, w = target.shape[:2]
+        if abs((x1 + x2) / 2 - w / 2) > w * .25 or abs((y1 + y2) / 2 - h / 2) > h * .25:
+            return {"ok": False, "reason_code": "FACE_OFF_CENTER", "message": "Đưa mặt vào giữa khung hình."}
+        crop = target[max(0, int(y1)):int(y2), max(0, int(x1)):int(x2)]
+        brightness = float(np.mean(crop))
+        if brightness < 45:
+            return {"ok": False, "reason_code": "FACE_TOO_DARK", "message": "Mặt thiếu sáng. Tăng ánh sáng phía trước."}
+        if brightness > 220:
+            return {"ok": False, "reason_code": "FACE_TOO_BRIGHT", "message": "Mặt bị chói. Giảm ánh sáng trực tiếp."}
+        return {"ok": True, "reason_code": "POSE_READY", "message": "Tư thế đạt. Nhìn thẳng và giữ nguyên."}
+
     def process_frame(
         self,
         frame_bgr: np.ndarray,

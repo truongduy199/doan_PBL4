@@ -43,6 +43,7 @@ def create_app(
     async def _lifespan(target_app: FastAPI) -> AsyncIterator[None]:
         worker: Optional[BookingExpiryAndRetentionWorker] = None
         maintenance_task = None
+        guidance_task = None
         bridge = None
         mdns = None
         if enable_background_worker:
@@ -81,9 +82,23 @@ def create_app(
                         logging.getLogger(__name__).exception("Gate maintenance failed")
                     await asyncio.sleep(1)
             maintenance_task = asyncio.create_task(maintain_gate_turns())
+            async def guide_camera_face() -> None:
+                while True:
+                    try:
+                        await asyncio.to_thread(app_container.gate_workflow_service.update_face_guidance)
+                    except Exception:
+                        logging.getLogger(__name__).exception("Face guidance worker failed")
+                    await asyncio.sleep(.5)
+            guidance_task = asyncio.create_task(guide_camera_face())
         try:
             yield
         finally:
+            if guidance_task:
+                guidance_task.cancel()
+                try:
+                    await guidance_task
+                except asyncio.CancelledError:
+                    pass
             if maintenance_task:
                 maintenance_task.cancel()
                 try:
