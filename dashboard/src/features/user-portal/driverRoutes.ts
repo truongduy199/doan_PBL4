@@ -1,15 +1,11 @@
-import { SlotId } from "../../shared/types";
+import { PARKING_SLOT_ORDER, SlotId } from "../../shared/types";
 
 export interface DriverRouteConfig {
   slotId: SlotId;
-  row: "A" | "B";
-  wing: "LEFT" | "RIGHT";
   zoneLabel: string;
-  turnDirection: "LEFT" | "RIGHT";
-  passesRowA: boolean;
+  turnDirection: "LEFT";
   distanceMeters: number;
   steeringPeakDeg: number;
-  turnLabelVi: string;
   hudStage2: string;
   hudStage3: string;
   radarWaypoints: [number, number][];
@@ -37,88 +33,32 @@ export interface DriverPose {
   worldRotateDeg: number;
 }
 
-export const DRIVER_ROUTES: Record<SlotId, DriverRouteConfig> = {
-  A1: {
-    slotId: "A1",
-    row: "A",
-    wing: "LEFT",
-    zoneLabel: "Dãy A • Cánh Trái (Gần Cổng Vào)",
+function makeDriverRoute(slotId: SlotId, index: number): DriverRouteConfig {
+  const distanceMeters = 12 + index * 4;
+  const targetBay = { cx: 44, cy: 146 - index * 36 };
+  const radarWaypoints: [number, number][] = [
+    [100, 178],
+    [100, targetBay.cy],
+    [targetBay.cx, targetBay.cy],
+  ];
+
+  return {
+    slotId,
+    zoneLabel: `Ô thứ ${index + 1} bên trái từ cổng vào`,
     turnDirection: "LEFT",
-    passesRowA: false,
-    distanceMeters: 12,
+    distanceMeters,
     steeringPeakDeg: -75,
-    turnLabelVi: "Tiến vào Dãy A, bật xi-nhan và đánh lái RẼ TRÁI vào ô A1",
-    hudStage2: "Tiến thẳng 12m qua barie dọc làn trung tâm tới điểm rẽ Dãy A",
-    hudStage3: "Bật xi-nhan TRÁI, đánh vô lăng -75° rẽ vào khoang đỗ A1",
-    radarWaypoints: [
-      [100, 178],
-      [100, 118],
-      [46, 118],
-    ],
-    radarPathPoints: "100,178 100,118 46,118",
-    targetBay: { cx: 46, cy: 118 },
-  },
-  A2: {
-    slotId: "A2",
-    row: "A",
-    wing: "RIGHT",
-    zoneLabel: "Dãy A • Cánh Phải (Gần Cổng Vào)",
-    turnDirection: "RIGHT",
-    passesRowA: false,
-    distanceMeters: 12,
-    steeringPeakDeg: 75,
-    turnLabelVi: "Tiến vào Dãy A, bật xi-nhan và đánh lái RẼ PHẢI vào ô A2",
-    hudStage2: "Tiến thẳng 12m qua barie dọc làn trung tâm tới điểm rẽ Dãy A",
-    hudStage3: "Bật xi-nhan PHẢI, đánh vô lăng +75° rẽ vào khoang đỗ A2",
-    radarWaypoints: [
-      [100, 178],
-      [100, 118],
-      [154, 118],
-    ],
-    radarPathPoints: "100,178 100,118 154,118",
-    targetBay: { cx: 154, cy: 118 },
-  },
-  B1: {
-    slotId: "B1",
-    row: "B",
-    wing: "LEFT",
-    zoneLabel: "Dãy B • Cánh Trái (Phía Trong Bãi)",
-    turnDirection: "LEFT",
-    passesRowA: true,
-    distanceMeters: 24,
-    steeringPeakDeg: -75,
-    turnLabelVi: "Đi qua Dãy A, bật xi-nhan và đánh lái RẼ TRÁI vào ô B1",
-    hudStage2: "Tiến thẳng 24m qua Dãy A (A1/A2) để vào sâu khu vực Dãy B",
-    hudStage3: "Bật xi-nhan TRÁI, đánh vô lăng -75° rẽ vào khoang đỗ B1",
-    radarWaypoints: [
-      [100, 178],
-      [100, 58],
-      [46, 58],
-    ],
-    radarPathPoints: "100,178 100,58 46,58",
-    targetBay: { cx: 46, cy: 58 },
-  },
-  B2: {
-    slotId: "B2",
-    row: "B",
-    wing: "RIGHT",
-    zoneLabel: "Dãy B • Cánh Phải (Phía Trong Bãi)",
-    turnDirection: "RIGHT",
-    passesRowA: true,
-    distanceMeters: 24,
-    steeringPeakDeg: 75,
-    turnLabelVi: "Đi qua Dãy A, bật xi-nhan và đánh lái RẼ PHẢI vào ô B2",
-    hudStage2: "Tiến thẳng 24m qua Dãy A (A1/A2) để vào sâu khu vực Dãy B",
-    hudStage3: "Bật xi-nhan PHẢI, đánh vô lăng +75° rẽ vào khoang đỗ B2",
-    radarWaypoints: [
-      [100, 178],
-      [100, 58],
-      [154, 58],
-    ],
-    radarPathPoints: "100,178 100,58 154,58",
-    targetBay: { cx: 154, cy: 58 },
-  },
-};
+    hudStage2: `Đi thẳng dọc làn xe đến ngang ô ${slotId} bên trái`,
+    hudStage3: `Bật xi-nhan trái và đánh lái vào ô ${slotId}`,
+    radarWaypoints,
+    radarPathPoints: radarWaypoints.map((point) => point.join(",")).join(" "),
+    targetBay,
+  };
+}
+
+export const DRIVER_ROUTES = Object.fromEntries(
+  PARKING_SLOT_ORDER.map((slotId, index) => [slotId, makeDriverRoute(slotId, index)])
+) as Record<SlotId, DriverRouteConfig>;
 
 export const DRIVER_PHASE_CHECKPOINTS: {
   index: 0 | 1 | 2 | 3;
@@ -169,7 +109,7 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
   const route = DRIVER_ROUTES[slotId] || DRIVER_ROUTES.A1;
   const p = clamp01(rawProgress);
   const [pStart, pTurn, pEnd] = route.radarWaypoints;
-  const sign = route.turnDirection === "LEFT" ? -1 : 1;
+  const approachScale = 1.12 + route.distanceMeters / 150;
 
   // Phase 0: 0.00 -> 0.25 (Gate IN verification & smooth barrier arm lift 0 -> 85 deg)
   if (p < 0.25) {
@@ -200,7 +140,7 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
     };
   }
 
-  // Phase 1: 0.25 -> 0.55 (Cruise straight along central aisle to target Row A or Row B)
+  // Phase 1: 0.25 -> 0.55 (Cruise straight along the aisle to the target bay)
   if (p < 0.55) {
     const local = smoothStep((p - 0.25) / 0.3);
     const carY = pStart[1] + (pTurn[1] - pStart[1]) * local;
@@ -222,8 +162,8 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
       radarCarX: pStart[0],
       radarCarY: carY,
       radarCarHeadingDeg: 0,
-      roadScrollOffset: (local * (route.passesRowA ? 180 : 100)) % 40,
-      worldScale: 1.04 + local * (route.passesRowA ? 0.24 : 0.16),
+      roadScrollOffset: (local * route.distanceMeters * 7) % 40,
+      worldScale: 1.04 + local * (approachScale - 1.04),
       worldShiftX: 0,
       worldRotateDeg: 0,
     };
@@ -235,7 +175,7 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
     const steerEnvelope = Math.sin(local * Math.PI);
     const steeringAngleDeg = Math.round(route.steeringPeakDeg * steerEnvelope);
     const carX = pTurn[0] + (pEnd[0] - pTurn[0]) * local;
-    const heading = sign * 90 * Math.min(1, local * 1.25);
+    const heading = -90 * Math.min(1, local * 1.25);
     const remM = Math.max(1, Math.round(3 * (1 - local)));
     return {
       phaseIndex: 2,
@@ -252,9 +192,9 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
       radarCarY: pTurn[1],
       radarCarHeadingDeg: heading,
       roadScrollOffset: (local * 60) % 40,
-      worldScale: (route.passesRowA ? 1.28 : 1.2) + local * 0.14,
-      worldShiftX: -sign * local * 115,
-      worldRotateDeg: -sign * steerEnvelope * 3.5,
+      worldScale: approachScale + local * 0.14,
+      worldShiftX: local * 115,
+      worldRotateDeg: steerEnvelope * 3.5,
     };
   }
 
@@ -274,10 +214,10 @@ export function evaluateDriverPose(slotId: SlotId, rawProgress: number): DriverP
     remainingMeters: 0,
     radarCarX: pEnd[0],
     radarCarY: pEnd[1],
-    radarCarHeadingDeg: sign * 90,
+    radarCarHeadingDeg: -90,
     roadScrollOffset: 0,
-    worldScale: (route.passesRowA ? 1.42 : 1.34) + local * 0.06,
-    worldShiftX: -sign * 115,
+    worldScale: approachScale + 0.14 + local * 0.06,
+    worldShiftX: 115,
     worldRotateDeg: 0,
   };
 }

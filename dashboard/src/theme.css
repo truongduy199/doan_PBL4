@@ -91,10 +91,9 @@ h3 { font-size: 15px; font-weight: 600; }
 .summary-value { font-size: 28px; font-weight: 600; line-height: 1.1; font-variant-numeric: tabular-nums; letter-spacing: -.6px; }
 .booking-layout { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
 .floor-plan { padding: 22px; }
-.floor-plan-top, .floor-plan-bottom { display: flex; justify-content: space-between; color: var(--muted); font-size: 11px; margin-bottom: 16px; }
-.floor-plan-bottom { margin: 16px 0 0; }
-.parking-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.parking-bay { min-height: 152px; padding: 17px; background: #fbfcf9; border: 1px solid #d8dfd6; border-radius: 6px; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 14px; text-align: left; color: var(--ink); }
+.parking-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(68px, 24%); gap: 16px; }
+.parking-bays { display: flex; flex-direction: column-reverse; gap: 10px; }
+.parking-bay { min-height: 92px; padding: 12px 16px; background: #fbfcf9; border: 1px solid #d8dfd6; border-radius: 6px; display: flex; flex-direction: column; align-items: start; justify-content: space-between; gap: 6px; text-align: left; color: var(--ink); }
 .parking-bay:disabled { opacity: 1; cursor: default; }
 .parking-bay:not(:disabled):hover { border-color: var(--accent); background: #f4f8f1; }
 .parking-bay.is-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: #f0f5ed; }
@@ -105,7 +104,9 @@ h3 { font-size: 15px; font-weight: 600; }
 .bay-number { font-size: 28px; font-weight: 550; line-height: 1; letter-spacing: -1px; }
 .bay-selected { color: var(--accent); font-size: 11px; }
 .bay-caption { font-size: 11px; color: var(--muted); }
-.parking-aisle { height: 46px; display: flex; align-items: center; justify-content: center; gap: 14px; color: #89968a; font-size: 10px; }
+.parking-aisle { display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 12px 4px; border: 1px dashed #cbd5c9; border-radius: 6px; background: #f2f5ef; color: var(--muted); font-size: 11px; text-align: center; }
+.parking-aisle-direction { display: grid; gap: 4px; }
+.parking-aisle-direction > span { color: var(--accent); font-size: 24px; line-height: 1; }
 .floor-plan-legend { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 16px; margin-top: 18px; }
 .booking-slot-number { font-size: 52px; line-height: 1; font-weight: 550; letter-spacing: -2px; }
 .booking-timer { font-size: 34px; line-height: 1.2; letter-spacing: -1px; font-variant-numeric: tabular-nums; font-weight: 550; }
@@ -168,8 +169,8 @@ body[data-ui-sandbox]::before { content: "Môi trường kiểm thử · Dữ li
   .summary-stat:nth-child(2) { border-right: 0; }
   .summary-stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
   .summary-value { font-size: 25px; }
-  .parking-row { gap: 12px; }
-  .parking-bay { min-height: 146px; padding: 13px; gap: 12px; }
+  .parking-layout { gap: 10px; }
+  .parking-bay { padding: 10px 12px; }
   .bay-number { font-size: 25px; }
   .bay-top { flex-wrap: wrap; }
   .bay-caption { font-size: 10px; }

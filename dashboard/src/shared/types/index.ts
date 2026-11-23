@@ -1,4 +1,5 @@
-export type SlotId = "A1" | "A2" | "B1" | "B2";
+export const PARKING_SLOT_ORDER = ["A1", "A2", "B1", "B2"] as const;
+export type SlotId = (typeof PARKING_SLOT_ORDER)[number];
 
 export type PhysicalSlotStatus = "Free" | "Occupied" | "Unknown" | "Fault";
 

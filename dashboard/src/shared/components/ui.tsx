@@ -1,5 +1,5 @@
 import React from "react";
-import { ParkingSlotView, SlotId, UserProfile } from "../types";
+import { PARKING_SLOT_ORDER, ParkingSlotView, SlotId, UserProfile } from "../types";
 
 export function ParkingBrand() {
   return <span className="parking-brand"><span className="parking-brand-mark" aria-hidden="true">P</span><span>Bãi đỗ <strong>PBL4</strong></span></span>;
@@ -83,10 +83,9 @@ export function ConfirmDialog({ title, children, pending, onClose, onConfirm }: 
 export function ParkingFloorPlan({ slots, selectedId, onSelect, disabled = false, admin = false }: {
   slots: ParkingSlotView[]; selectedId?: SlotId | null; onSelect?: (id: SlotId) => void; disabled?: boolean; admin?: boolean;
 }) {
-  return <div className="floor-plan"><div className="floor-plan-top"><span>Vị trí ô đỗ</span><span>IN <span aria-hidden="true">→</span> Lối vào</span></div>
-    {([['A1', 'A2'], ['B1', 'B2']] as SlotId[][]).map((row, index) => <React.Fragment key={index}>
-      {index === 1 && <div className="parking-aisle"><span>Lối xe lưu thông</span><span aria-hidden="true">↓</span></div>}
-      <div className="parking-row">{row.map((id) => {
+  return <div className="floor-plan">
+    <div className="parking-layout">
+      <div className="parking-bays" role="group" aria-label="Các ô bên trái theo thứ tự từ cổng vào">{PARKING_SLOT_ORDER.map((id) => {
         const slot = slots.find((item) => item.slot_id === id);
         const state = slot?.display_status || "UNKNOWN_OR_FAULT";
         const canSelect = !!slot?.is_bookable && !disabled && !!onSelect;
@@ -100,8 +99,12 @@ export function ParkingFloorPlan({ slots, selectedId, onSelect, disabled = false
           <span className="bay-caption">{slot && (admin || mine) && slot.plate_display ? slot.plate_display : state === "AVAILABLE" ? "Chọn để giữ chỗ 60 phút" : state === "UNKNOWN_OR_FAULT" ? "Chờ dữ liệu cảm biến" : statusLabel(state)}</span>
         </button>;
       })}</div>
-    </React.Fragment>)}
-    <div className="floor-plan-bottom"><span>OUT <span aria-hidden="true">←</span> Lối ra</span><span>Hàng A / Hàng B</span></div>
+      <div className="parking-aisle">
+        <span>Lối ra</span>
+        <span className="parking-aisle-direction"><span aria-hidden="true">↑</span> Hướng xe chạy</span>
+        <span>Cổng vào</span>
+      </div>
+    </div>
     <div className="floor-plan-legend"><StatusBadge status="AVAILABLE" /><StatusBadge status="RESERVED" /><StatusBadge status="OCCUPIED" /><StatusBadge status="UNKNOWN_OR_FAULT" label="Chưa rõ" /></div>
   </div>;
 }

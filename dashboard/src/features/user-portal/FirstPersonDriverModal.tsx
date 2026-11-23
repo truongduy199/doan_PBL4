@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { SlotId } from "../../shared/types";
+import { PARKING_SLOT_ORDER, SlotId } from "../../shared/types";
 import {
   DRIVER_PHASE_CHECKPOINTS,
   DRIVER_ROUTES,
@@ -15,6 +15,20 @@ interface FirstPersonDriverModalProps {
 }
 
 const BASE_DURATION_MS = 9600;
+
+const PERSPECTIVE_BAYS = PARKING_SLOT_ORDER.map((id, index) => {
+  const bottom = 376 - index * 47;
+  const top = bottom - 39;
+  const nearEdge = 268 - (bottom - 170) * 0.272;
+  const farEdge = 268 - (top - 170) * 0.272;
+  const width = 136 - index * 20;
+  return {
+    id,
+    points: `${farEdge - width + 12},${top} ${farEdge},${top} ${nearEdge},${bottom} ${nearEdge - width},${bottom}`,
+    cx: (farEdge + nearEdge - width) / 2,
+    cy: (top + bottom) / 2,
+  };
+});
 
 export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
   isOpen,
@@ -32,6 +46,7 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
 
   const route = DRIVER_ROUTES[slotId] || DRIVER_ROUTES.A1;
   const pose = evaluateDriverPose(slotId, progress);
+  const target = PERSPECTIVE_BAYS[PARKING_SLOT_ORDER.indexOf(route.slotId)];
 
   // Reset & start smooth playback whenever modal opens or slot changes
   useEffect(() => {
@@ -250,41 +265,30 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
                 strokeDasharray="5,5"
               />
 
-              {/* 4 Parking Bays on Radar */}
-              {(
-                [
-                  { id: "B1", x: 16, y: 36 },
-                  { id: "B2", x: 128, y: 36 },
-                  { id: "A1", x: 16, y: 96 },
-                  { id: "A2", x: 128, y: 96 },
-                ] as const
-              ).map((s) => {
-                const isTarget = s.id === slotId;
+              {PARKING_SLOT_ORDER.map((id) => {
+                const { cx, cy } = DRIVER_ROUTES[id].targetBay;
+                const isTarget = id === slotId;
                 return (
-                  <g key={s.id}>
+                  <g key={id}>
                     <rect
-                      x={s.x}
-                      y={s.y}
+                      x={cx - 28}
+                      y={cy - 14}
                       width="56"
-                      height="44"
+                      height="28"
                       rx="5"
-                      fill={
-                        isTarget
-                          ? "rgba(16, 185, 129, 0.28)"
-                          : "rgba(15, 23, 42, 0.85)"
-                      }
+                      fill={isTarget ? "rgba(16, 185, 129, 0.28)" : "#0f172a"}
                       stroke={isTarget ? "#10b981" : "#334155"}
                       strokeWidth={isTarget ? "2.5" : "1.2"}
                     />
                     <text
-                      x={s.x + 28}
-                      y={s.y + 26}
+                      x={cx}
+                      y={cy + 4}
                       textAnchor="middle"
                       fill={isTarget ? "#34d399" : "#94a3b8"}
-                      fontSize="13"
+                      fontSize="12"
                       fontWeight="bold"
                     >
-                      {s.id}
+                      {id}
                     </text>
                   </g>
                 );
@@ -390,97 +394,28 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
                 fontSize="13.5"
                 fontWeight="bold"
               >
-                BÃI ĐỖ XE THÔNG MINH PBL4 • KHU A (A1–A2) &amp; KHU B (B1–B2)
+                BÃI ĐỖ XE PBL4 • CÁC Ô BÊN TRÁI
               </text>
 
               {/* Perspective Asphalt Road */}
-              <polygon points="0,420 268,170 532,170 800,420" fill="url(#fpRoadGrad)" />
+              <polygon points="200,420 268,170 532,170 800,420" fill="url(#fpRoadGrad)" />
 
-              {/* Far Row B Bays (B1 Left, B2 Right) */}
-              <polygon
-                points="155,235 258,180 290,206 196,266"
-                fill={
-                  slotId === "B1"
-                    ? "rgba(16, 185, 129, 0.38)"
-                    : "rgba(15, 23, 42, 0.78)"
-                }
-                stroke={slotId === "B1" ? "#34d399" : "#64748b"}
-                strokeWidth={slotId === "B1" ? "3.5" : "1.5"}
-              />
-              <text
-                x="226"
-                y="228"
-                textAnchor="middle"
-                fill={slotId === "B1" ? "#6ee7b7" : "#cbd5e1"}
-                fontSize="16"
-                fontWeight="bold"
-              >
-                B1
-              </text>
-
-              <polygon
-                points="645,235 542,180 510,206 604,266"
-                fill={
-                  slotId === "B2"
-                    ? "rgba(16, 185, 129, 0.38)"
-                    : "rgba(15, 23, 42, 0.78)"
-                }
-                stroke={slotId === "B2" ? "#34d399" : "#64748b"}
-                strokeWidth={slotId === "B2" ? "3.5" : "1.5"}
-              />
-              <text
-                x="574"
-                y="228"
-                textAnchor="middle"
-                fill={slotId === "B2" ? "#6ee7b7" : "#cbd5e1"}
-                fontSize="16"
-                fontWeight="bold"
-              >
-                B2
-              </text>
-
-              {/* Near Row A Bays (A1 Left, A2 Right) */}
-              <polygon
-                points="46,326 178,248 224,290 105,378"
-                fill={
-                  slotId === "A1"
-                    ? "rgba(16, 185, 129, 0.42)"
-                    : "rgba(15, 23, 42, 0.78)"
-                }
-                stroke={slotId === "A1" ? "#34d399" : "#64748b"}
-                strokeWidth={slotId === "A1" ? "3.5" : "1.5"}
-              />
-              <text
-                x="140"
-                y="318"
-                textAnchor="middle"
-                fill={slotId === "A1" ? "#6ee7b7" : "#cbd5e1"}
-                fontSize="20"
-                fontWeight="bold"
-              >
-                A1
-              </text>
-
-              <polygon
-                points="754,326 622,248 576,290 695,378"
-                fill={
-                  slotId === "A2"
-                    ? "rgba(16, 185, 129, 0.42)"
-                    : "rgba(15, 23, 42, 0.78)"
-                }
-                stroke={slotId === "A2" ? "#34d399" : "#64748b"}
-                strokeWidth={slotId === "A2" ? "3.5" : "1.5"}
-              />
-              <text
-                x="660"
-                y="318"
-                textAnchor="middle"
-                fill={slotId === "A2" ? "#6ee7b7" : "#cbd5e1"}
-                fontSize="20"
-                fontWeight="bold"
-              >
-                A2
-              </text>
+              {PERSPECTIVE_BAYS.map(({ id, points, cx, cy }) => {
+                const isTarget = id === slotId;
+                return (
+                  <g key={id}>
+                    <polygon
+                      points={points}
+                      fill={isTarget ? "rgba(16, 185, 129, 0.42)" : "rgba(15, 23, 42, 0.78)"}
+                      stroke={isTarget ? "#34d399" : "#64748b"}
+                      strokeWidth={isTarget ? "3.5" : "1.5"}
+                    />
+                    <text x={cx} y={cy + 5} textAnchor="middle" fill={isTarget ? "#6ee7b7" : "#cbd5e1"} fontSize="16" fontWeight="bold">
+                      {id}
+                    </text>
+                  </g>
+                );
+              })}
 
               {/* Animated Scrolling Center Dashed Line */}
               <line
@@ -494,51 +429,15 @@ export const FirstPersonDriverModal: React.FC<FirstPersonDriverModalProps> = ({
                 strokeDashoffset={-pose.roadScrollOffset}
               />
 
-              {/* Glowing AR Guidance Carpet leading into exact target bay */}
-              {slotId === "A1" && (
-                <path
-                  d="M 400 398 L 400 306 L 146 315"
-                  fill="none"
-                  stroke="url(#fpGlowCarpet)"
-                  strokeWidth="11"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.82"
-                />
-              )}
-              {slotId === "A2" && (
-                <path
-                  d="M 400 398 L 400 306 L 654 315"
-                  fill="none"
-                  stroke="url(#fpGlowCarpet)"
-                  strokeWidth="11"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.82"
-                />
-              )}
-              {slotId === "B1" && (
-                <path
-                  d="M 400 398 L 400 222 L 226 226"
-                  fill="none"
-                  stroke="url(#fpGlowCarpet)"
-                  strokeWidth="11"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.82"
-                />
-              )}
-              {slotId === "B2" && (
-                <path
-                  d="M 400 398 L 400 222 L 574 226"
-                  fill="none"
-                  stroke="url(#fpGlowCarpet)"
-                  strokeWidth="11"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  opacity="0.82"
-                />
-              )}
+              <path
+                d={`M 400 398 L 400 ${target.cy} L ${target.cx} ${target.cy}`}
+                fill="none"
+                stroke="url(#fpGlowCarpet)"
+                strokeWidth="11"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.82"
+              />
 
               {/* Gate IN Barrier Assembly (smoothly lifts 0 -> 85 deg and fades as car passes) */}
               {progress < 0.42 && (
