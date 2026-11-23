@@ -1,7 +1,7 @@
 """Hardware-free orchestration regression tests; real repositories + isolated test DB.
 
 AI outcomes are injected. These tests do not measure recognition accuracy or GPIO timing.
-Run: python -m unittest discover -s edge-server/tests -p test_duy_runtime.py -v
+Run: python -m unittest discover -s edge-server/tests -p test_gate_runtime.py -v
 """
 from pathlib import Path
 import sys
@@ -29,10 +29,11 @@ from smart_parking.application.services.gate_workflow_service import TOPIC_GATE_
 from smart_parking.infrastructure.mqtt.mqtt_bridge import MqttGateBridge
 
 
-class DuyRuntimeTests(unittest.TestCase):
+class GateRuntimeTests(unittest.TestCase):
     def setUp(self):
         self.now = utc_now()
-        self.settings = Settings(device_api_key="test-device-key", slot_stale_seconds=300)
+        self.settings = Settings(device_api_key="test-device-key", slot_stale_seconds=300,
+                                 capture_sample_count=1, capture_timeout_seconds=5)
         self.db = SandboxMySQLTestDatabase(self.settings)
         self.c = build_container(settings=self.settings, db=self.db)
         self.seed = seed_demo_data(uow=self.c.uow, cipher=self.c.cipher, settings=self.settings,

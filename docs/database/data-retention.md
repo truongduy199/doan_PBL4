@@ -1,5 +1,7 @@
 # Chính Sách Mã Hóa & Lưu Trữ Dữ Liệu Khuôn Mặt (Data Retention & Encryption Policy)
 
+Ảnh xem trên dashboard chỉ dành cho ADMIN: mỗi camera giữ tối đa một JPEG gần nhất trong RAM, khung mới thay khung cũ, hết hạn sau 30 giây và được dọn bởi tác vụ bảo trì. Không lưu lịch sử video. API ảnh trả `Cache-Control: no-store, private`; giao diện bỏ ảnh khi hết hạn hoặc rời màn hình camera/tổng quan/thiết bị. Không ghi ảnh khuôn mặt xuống đĩa hoặc database. Chụp/xem trực tiếp kiểm tra qua dashboard không chạy AI, không tạo phiên và không phát lệnh barie; yêu cầu xe tại cổng luôn được ưu tiên. Phiên xem kiểm tra tự dừng sau 30 giây; luồng theo lượt xe chỉ được gia hạn khi heartbeat mới xác nhận đúng lượt xe còn hiện diện.
+
 ---
 
 ## 1. Mã Hóa Vector Khuôn Mặt 512-D (`EmbeddingCipher`)

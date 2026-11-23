@@ -1,1 +1,21 @@
-﻿sequenceDiagram\n  autonumber\n  Edge->>Firebase: Create review_request\n  Dashboard->>Firebase: Operator submits decision\n  Firebase->>Edge: Sync decision\n  Edge->>ESP32: OPEN_GATE (if approved)
+sequenceDiagram
+    autonumber
+    participant Edge as FastAPI
+    participant DB as MySQL
+    participant Admin as Admin Dashboard
+    participant MQTT as Mosquitto
+    participant CTRL as S3 điều khiển
+    Edge->>DB: Ghi sự kiện cần duyệt
+    Edge-->>Admin: Thông báo thay đổi
+    Admin->>Edge: REST quyết định và lý do (RBAC)
+    Edge->>Edge: Kiểm tra lượt còn hoạt động và điều kiện AI / phiên
+    alt Đủ điều kiện cấp quyền
+        Edge->>DB: Commit quyết định và dữ liệu phiên
+        Edge->>MQTT: Lệnh cổng đúng event_id và thời hạn
+        MQTT->>CTRL: OPEN
+        CTRL->>CTRL: Kiểm tra lượt, hạn lệnh và IR
+        CTRL->>MQTT: ACK nhận lệnh / ra lệnh servo
+    else Từ chối hoặc lượt không còn hợp lệ
+        Edge->>DB: Ghi kết quả / audit theo nghiệp vụ
+        Edge-->>Admin: Kết quả hoặc lỗi, không mở cổng
+    end

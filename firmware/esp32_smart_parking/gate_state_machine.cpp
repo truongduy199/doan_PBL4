@@ -89,7 +89,6 @@ static void updateSingleGate(GateContext& g, unsigned long nowMs) {
                 strncpy(g.assignedSlotId, "--", sizeof(g.assignedSlotId));
                 g.state = GATE_STATE_WAITING_BACKEND;
                 g.stateEnteredMs = nowMs;
-                triggerBuzzer(60);
                 publishGateDetectedEvent(g.gateId, g.currentEventId, "DETECTED", true);
                 refreshDisplay();
             }
@@ -108,7 +107,6 @@ static void updateSingleGate(GateContext& g, unsigned long nowMs) {
                 // Quá thời gian chờ backend/AI -> chuyển Review_required, không tự mở cổng
                 g.state = GATE_STATE_REVIEW_REQUIRED;
                 g.stateEnteredMs = nowMs;
-                triggerBuzzerPattern(2, 120, 100);
                 publishGateDetectedEvent(g.gateId, g.currentEventId, "BACKEND_DECISION_TIMEOUT", irDetected);
                 refreshDisplay();
             }
@@ -142,7 +140,6 @@ static void updateSingleGate(GateContext& g, unsigned long nowMs) {
                 closeGateServo(g.gateIndex);
                 g.state = GATE_STATE_CLOSING;
                 g.stateEnteredMs = nowMs;
-                triggerBuzzer(80);
                 refreshDisplay();
             }
             break;
@@ -256,7 +253,6 @@ bool applyBackendGateCommand(
         openGateServo(idx);
         g.state = GATE_STATE_OPEN;
         g.stateEnteredMs = millis();
-        triggerBuzzer(120);
         refreshDisplay();
 
         outReason = "SERVO_OPEN_ISSUED";
@@ -270,7 +266,6 @@ bool applyBackendGateCommand(
         g.lastCommandId[sizeof(g.lastCommandId) - 1] = '\0';
         g.state = GATE_STATE_REVIEW_REQUIRED;
         g.stateEnteredMs = millis();
-        triggerBuzzerPattern(3, 100, 80);
         refreshDisplay();
         outReason = "GATE_HELD_FOR_REVIEW_OR_DENIED";
         return true;

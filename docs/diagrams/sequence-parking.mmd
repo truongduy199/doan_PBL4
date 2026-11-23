@@ -1,1 +1,13 @@
-﻿sequenceDiagram\n  autonumber\n  Camera->>Edge: Parking overview frames\n  Edge->>Edge: Occupancy detection\n  Edge->>Firebase: Update slot status
+sequenceDiagram
+    autonumber
+    participant CTRL as S3 điều khiển
+    participant MQTT as Mosquitto
+    participant Edge as FastAPI
+    participant DB as MySQL
+    participant Web as User / Admin
+    CTRL->>MQTT: parking/slots/snapshot (IR A1..B2)
+    MQTT->>Edge: Snapshot có boot_id và sequence
+    Edge->>DB: Cập nhật trạng thái vật lý và đối soát ô được cấp
+    DB-->>Edge: Kết quả giao dịch
+    Edge-->>Web: Thông báo thay đổi qua WebSocket / SSE
+    Web->>Edge: REST tải lại trạng thái ô và phiên

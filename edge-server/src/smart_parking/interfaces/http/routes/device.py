@@ -15,6 +15,41 @@ from smart_parking.infrastructure.database.mysql_db import utc_now, format_utc_i
 router = APIRouter(prefix="/api/device", tags=["Device IoT"])
 
 
+@router.post("/mjpeg")
+async def upload_device_mjpeg(request: Request) -> Dict[str, Any]:
+    from smart_parking.interfaces.http.mjpeg import MjpegParser
+    from starlette.requests import ClientDisconnect
+    authenticate_device(request)
+    if _get_header(request.headers, "content-type") != "multipart/x-mixed-replace; boundary=frame":
+        raise DomainException("Expected MJPEG multipart body.", reason_code="INVALID_MJPEG", http_status=415)
+    service = get_container(request).gate_workflow_service
+    metadata = {key: _get_header(request.headers, header) for key, header in (
+        ("event_id", "x-event-id"), ("camera_id", "x-camera-id"), ("device_id", "x-device-id"),
+        ("gate_id", "x-gate-id"), ("roi", "x-roi"))}
+    stream_id = _get_header(request.headers, "x-stream-id")
+    service.validate_stream_upload(stream_id, **metadata)
+    parser, accepted = MjpegParser(), 0
+    chunks = request.stream().__aiter__()
+    try:
+        while True:
+            try:
+                chunk = await asyncio.wait_for(chunks.__anext__(), timeout=5)
+            except StopAsyncIteration:
+                break
+            service.validate_stream_upload(stream_id, **metadata)
+            # Bound parser memory even if ASGI groups many network chunks together.
+            for offset in range(0, len(chunk), 16384):
+                for frame_id, jpeg in parser.feed(chunk[offset:offset + 16384]):
+                    await asyncio.to_thread(service.ingest_stream_image, image_bytes=jpeg, frame_id=frame_id, **metadata)
+                    accepted += 1
+        parser.finish()
+    except ClientDisconnect:
+        return {"accepted_frames": accepted, "disconnected": True}
+    except asyncio.TimeoutError as exc:
+        raise DomainException("MJPEG upload idle timeout.", reason_code="STREAM_IDLE", http_status=408) from exc
+    return {"accepted_frames": accepted}
+
+
 def authenticate_device(request: Request) -> None:
     key = get_container(request).settings.device_api_key
     received = _get_header(request.headers, "x-device-key")
@@ -41,6 +76,7 @@ def _get_header(headers: Dict[str, str], name: str, default: str = "") -> str:
 
 
 @router.post("/images")
+@router.post("/stream")
 async def upload_device_image(request: Request) -> Dict[str, Any]:
     """
     Receive fresh JPEG image from ESP32-S3 OV5640 (`cam_plate` or `cam_face`) per Section VII.1 & VIII.2.
@@ -109,6 +145,8 @@ async def upload_device_image(request: Request) -> Dict[str, Any]:
         gate_id=gate_id,
         roi=roi,
     )
+    ingest = (container.gate_workflow_service.ingest_stream_image if str(request.url).split("?")[0].endswith("/stream")
+              else container.gate_workflow_service.ingest_device_image)
     if HAS_FASTAPI:
-        return await asyncio.to_thread(container.gate_workflow_service.ingest_device_image, **kwargs)
-    return container.gate_workflow_service.ingest_device_image(**kwargs)
+        return await asyncio.to_thread(ingest, **kwargs)
+    return ingest(**kwargs)

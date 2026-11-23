@@ -1,13 +1,13 @@
-# Bàn giao phần mềm của Duy
+# Cấu hình và tích hợp hệ thống
 
-Kiến trúc áp dụng: hai ESP32-S3 N16R8/OV5640, MySQL trên laptop, HTTP ảnh JPEG và MQTT sự kiện/lệnh. Bo `s3_plate_ctrl` đọc sáu IR, điều khiển hai servo/OLED/còi và chụp biển số; bo `s3_face_cam` chụp khuôn mặt. Không có DevKit, camera toàn cảnh hay AI đếm ô đỗ trong luồng này.
+Kiến trúc áp dụng: hai ESP32-S3 N16R8/OV5640, MySQL trên laptop, HTTP ảnh JPEG và MQTT sự kiện/lệnh. Bo `s3_plate_ctrl` đọc sáu IR, điều khiển hai servo/OLED và chụp biển số; bo `s3_face_cam` chụp khuôn mặt. Không có DevKit, camera toàn cảnh hay AI đếm ô đỗ trong luồng này.
 
 ## 1. Mã đã triển khai
 
 - Firmware tách vòng điều khiển và tác vụ mạng bằng FreeRTOS/queue. Chỉ vòng điều khiển chạm cảm biến, servo và OLED; HTTP, camera, mDNS, reconnect và MQTT chạy trong tác vụ mạng.
 - Hai cổng đợi quyền backend, kiểm tra event/command/hạn, kiểm tra xe còn hiện diện, chờ IR trống liên tục 3 giây và mở lại khi phát hiện vật trong lúc đóng. Chỉ phát một xác nhận passage cho mỗi lượt, kể cả có vật xuất hiện lại lúc đóng.
 - Sự kiện cổng có ACK ứng dụng và retry trong RAM; không đồng nhất ACK nhận lệnh, ra lệnh servo và xe qua cổng. PubSubClient publish QoS 0; backend publish QoS 1. Không retain lệnh hoặc yêu cầu chụp.
-- HTTP xác thực `X-Device-Key`, giới hạn dung lượng, kiểm tra đúng camera/device/event/frame/gate/ROI, ảnh quá hạn, ảnh trùng và lượt đang hoạt động. Ảnh nằm trong RAM và được giải phóng sau suy luận/timeout; không ghi ảnh mặt xuống đĩa.
+- HTTP xác thực `X-Device-Key`, giới hạn dung lượng, kiểm tra đúng camera/device/event/frame/gate/ROI, ảnh quá hạn, ảnh trùng và lượt đang hoạt động. Frame suy luận được giải phóng sau xử lý/timeout. Dashboard ADMIN có ảnh JPEG gần nhất của mỗi camera trong RAM tối đa 30 giây; không ghi ảnh mặt xuống đĩa.
 - Backend khởi động/dừng MQTT cùng FastAPI, xếp một lượt nhận diện, chặn xe IN tiếp theo khi còn phiên vào/chờ đỗ chưa rõ, gọi module AI và dữ liệu, gửi lệnh sau commit. Mất DB không tự cấp quyền.
 - Model khuôn mặt được khởi tạo từ tài nguyên cục bộ; thiếu model/liveness không giả lập thành công. Đường tìm module biển số đã trỏ về đúng `modules/`.
 - Admin có giám sát bo/camera/MQTT/hàng đợi/ACK, nhật ký và đếm ngược theo giờ server. Duyệt phải nhập lý do; sự kiện cũ không còn lượt thiết bị không được dùng để mở cổng. IN thiếu mẫu phiên hợp lệ phải chụp lại; không bỏ qua liveness.
@@ -15,7 +15,7 @@ Kiến trúc áp dụng: hai ESP32-S3 N16R8/OV5640, MySQL trên laptop, HTTP ả
 
 ## 2. Chuẩn bị môi trường
 
-Chạy từ gốc repository, dùng Python phù hợp với bản InsightFace/addon Nam bàn giao:
+Chạy từ gốc repository, dùng Python phù hợp với bản InsightFace/addon liveness của dự án:
 
 ```powershell
 py -3.11 -m venv edge-server/.venv
@@ -24,7 +24,7 @@ py -3.11 -m venv edge-server/.venv
 Copy-Item edge-server/.env.example edge-server/.env
 ```
 
-Không ghi đè `.env` đã cấu hình. Cài đúng bản InsightFace có addon của Nam; việc có `liveness.onnx` không chứng minh thư viện đang thực thi addon. Không tự đổi ngưỡng để vượt kiểm tra liveness. Model/trọng số và dữ liệu tài xế thực tế thuộc phần bàn giao AI/dữ liệu, không được thay bằng vector mẫu để tuyên bố demo thật.
+Không ghi đè `.env` đã cấu hình. Cài đúng bản InsightFace có addon liveness; việc có `liveness.onnx` không chứng minh thư viện đang thực thi addon. Không tự đổi ngưỡng để vượt kiểm tra liveness. Model/trọng số và dữ liệu tài xế thực tế cần được tích hợp từ tài nguyên AI/dữ liệu thật, không được thay bằng vector mẫu để tuyên bố demo thật.
 
 Điền MySQL/khóa mã hóa theo hướng dẫn dự án. Với chế độ thiết bị, cấu hình thêm:
 
@@ -87,6 +87,18 @@ COM5/COM6 chỉ là ví dụ. Không đặt `BOARD_ROLE` trong `config.local.h`;
 
 Khi Wi-Fi lên lại, S3 tìm `pbl4-server.local`; nếu không tìm được dùng địa chỉ gần nhất trong NVS, sau đó địa chỉ cấu hình ban đầu. Địa chỉ gần nhất được lưu ở namespace `pbl4`, khóa `backend_host`. Firmware đồng bộ giờ từ `/api/device/time`, sau đó kiểm tra hạn tuyệt đối `expires_at_ms`; chưa đồng bộ giờ thì không thi hành lệnh. Snapshot/heartbeat định kỳ dùng để đối soát sau reconnect. Sau reset nguồn, backend giữ phiên/ô chưa xác nhận và cần quản trị đối soát; không tự phát lại OPEN.
 
+### Kiểm tra hai camera thật trước khi chạy AI
+
+Khi cả hai bo và broker đã online, có thể chạy từ gốc repository:
+
+```powershell
+& ./.venv/Scripts/python.exe scripts/check_camera_capture.py
+```
+
+Cổng HTTP cấu hình phải đang trống. Script mở server chẩn đoán tạm, chờ ESP đồng bộ giờ, yêu cầu mỗi camera chụp một JPEG và kiểm tra ảnh qua luồng nhận ảnh thiết bị hiện có. Mặc định không khởi tạo AI; không kết nối database, không gửi lệnh barie và không lưu ảnh xuống đĩa. Server tự dừng và giải phóng ảnh trong RAM sau phép thử. Kết quả đạt mặc định chỉ chứng minh chụp/truyền/giải mã JPEG và metadata, chưa chứng minh chất lượng nhận diện.
+
+Thêm `--models-only` để kiểm tra nạp model cục bộ mà không chụp. Thêm `--ai` để chạy YOLO/OCR và pipeline khuôn mặt có yêu cầu liveness trên ảnh thật vừa nhận. Đặt biển số và một người trong đúng khung hình trước khi chạy. Chế độ AI này vẫn không ghi dữ liệu, không phát lệnh cổng và không đối sánh danh tính vì chưa cung cấp mẫu tham chiếu. Không in hoặc lưu vector khuôn mặt.
+
 ## 5. Chạy web và backend
 
 Để demo không phụ thuộc Internet, build frontend trước khi ngắt Internet:
@@ -96,22 +108,22 @@ Set-Location dashboard
 npm install
 npm run build
 Set-Location ..
-& ./edge-server/.venv/Scripts/python.exe scripts/check_duy.py --runtime --network
-./scripts/start_duy.ps1
+& ./edge-server/.venv/Scripts/python.exe scripts/check_environment.py --runtime --network
+./scripts/start_backend.ps1
 ```
 
-FastAPI ưu tiên `dashboard/dist/index.html` và `/assets` khi đã build; nếu chưa có dist thì dùng giao diện CDN hiện có, cần Internet để tải thư viện. Mở `/login`, đăng nhập ADMIN và USER bằng hai trình duyệt. `check_duy.py` chỉ kiểm tra, không seed/reset dữ liệu hoặc mở cổng. MySQL và dữ liệu demo dùng script của Việt, không tự xóa để chạy thử.
+FastAPI ưu tiên `dashboard/dist/index.html` và `/assets` khi đã build; nếu chưa có dist thì dùng giao diện CDN hiện có, cần Internet để tải thư viện. Mở `/login`, đăng nhập ADMIN và USER bằng hai trình duyệt. `check_environment.py` chỉ kiểm tra, không seed/reset dữ liệu hoặc mở cổng. MySQL và dữ liệu demo dùng các script `init_database.py` và `seed_demo_data.py`, không tự xóa để chạy thử.
 
 ## 6. Kiểm thử và giới hạn kiểm chứng
 
 ```powershell
-& ./edge-server/.venv/Scripts/python.exe -m unittest discover -s edge-server/tests -p test_duy_runtime.py -v
-& ./edge-server/.venv/Scripts/python.exe -m unittest discover -s edge-server/tests -p test_viet_acceptance_suite.py -v
+& ./edge-server/.venv/Scripts/python.exe -m unittest discover -s edge-server/tests -p test_gate_runtime.py -v
+& ./edge-server/.venv/Scripts/python.exe -m unittest discover -s edge-server/tests -p test_system_acceptance.py -v
 & ./edge-server/.venv/Scripts/python.exe -m pytest edge-server/tests/test_gate_workflow_and_ai_integration.py -v
 & ./edge-server/.venv/Scripts/python.exe scripts/check_contracts.py
 ```
 
-`test_duy_runtime.py` dùng repository thật với DB kiểm thử SQLite tương thích SQL và kết quả AI được tiêm vào. Đây là kiểm chứng nghiệp vụ, không chứng minh khóa InnoDB, độ chính xác AI hoặc phần cứng. Bộ acceptance hiện có dùng database riêng `smart_parking_pbl4_test` nếu MySQL test truy cập được; nó dọn bảng trong database test đó. Không đổi tên database test thành database demo.
+`test_gate_runtime.py` dùng repository thật với DB kiểm thử SQLite tương thích SQL và kết quả AI được tiêm vào. Đây là kiểm chứng nghiệp vụ, không chứng minh khóa InnoDB, độ chính xác AI hoặc phần cứng. Bộ acceptance hiện có dùng database riêng `smart_parking_pbl4_test` nếu MySQL test truy cập được; nó dọn bảng trong database test đó. Không đổi tên database test thành database demo.
 
 Cần làm trên thiết bị thật: xác nhận đúng pinout bo mua thực tế, build toolchain, nạp hai bo, điện áp/nguồn servo, mức tín hiệu IR, hai camera đồng thời, FPS/latency, timeout mạng, mất nguồn/reconnect, bo điều khiển vẫn đọc IR khi HTTP chậm và demo đủ vòng booking/walk-in/ngoại lệ. Các phép đo chưa chạy không có số liệu công bố.
 

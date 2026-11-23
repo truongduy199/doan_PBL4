@@ -19,8 +19,7 @@ Cài thêm theo phần việc:
 | --- | --- |
 | Edge Server, AI, camera | Python 3.11 x64 |
 | Dashboard | Node.js LTS và npm |
-| Firebase | Node.js LTS; Firebase CLI chỉ cần khi chạy emulator hoặc deploy rules |
-| ESP32 | Arduino IDE 2.x và board package ESP32 by Espressif Systems |
+| ESP32 | PlatformIO IDE và toolchain được khai báo trong `firmware/platformio.ini` |
 
 Khuyến nghị dùng **Python 3.11 x64**. Không nên dùng Python 3.13 cho môi trường InsightFace của dự án nếu chưa kiểm tra tương thích.
 
@@ -218,33 +217,30 @@ Copy-Item ".\edge-server\.env.example" ".\edge-server\.env"
 
 Chỉ sửa `edge-server/.env` trên máy cá nhân. Không commit file này.
 
-Các giá trị Firebase thật và `EMBEDDING_SECRET_KEY` phải nhận từ người quản lý dự án qua kênh riêng. Không gửi service-account JSON, secret hoặc `.env` lên GitHub, issue, pull request hay nhóm chat công khai.
+Điền cấu hình MySQL, MQTT, khóa mã hóa và `DEVICE_API_KEY` trên máy cá nhân. Không gửi secret hoặc `.env` lên GitHub, issue, pull request hay nhóm chat công khai.
 
-### 5.8. Khởi tạo SQLite
+### 5.8. Khởi tạo MySQL
 
-Script migration dùng đường dẫn tương đối nên cần chạy bên trong `edge-server`:
-
-```powershell
-Push-Location ".\edge-server"
-python ".\scripts\init_database.py"
-Pop-Location
-```
-
-Database được tạo tại `edge-server/var/db/parking.sqlite3` và đã được `.gitignore`.
-
-### 5.9. Kiểm tra package Edge Server
+Chỉ thực hiện khi database chưa được chuẩn bị. Điền kết nối MySQL trong `edge-server/.env`, rồi chạy từ gốc repository:
 
 ```powershell
-Push-Location ".\edge-server"
-python -m smart_parking.main
-Pop-Location
+python .\edge-server\scripts\init_database.py
 ```
 
-Ở giai đoạn hiện tại, `bootstrap_system()` mới là khung kết nối thành phần. Lệnh trên chủ yếu xác nhận package và cấu trúc import hoạt động; chưa khởi chạy toàn bộ camera, Firebase và ESP32.
+Script áp dụng migration MySQL/InnoDB. Không thêm `--drop-existing` vào database đang dùng. Nạp dữ liệu demo khi cần theo [hướng dẫn tích hợp](docs/setup/system-integration.md); không chạy seed lại chỉ để kiểm tra môi trường.
+
+### 5.9. Kiểm tra và chạy backend
+
+```powershell
+python scripts/check_environment.py --runtime --network
+.\scripts\start_backend.ps1
+```
+
+Script khởi động dùng `.venv` ở gốc hoặc `edge-server/.venv`, chạy một worker trên cổng 8000. Mở `http://127.0.0.1:8000/login`. Với ESP thật, backend và broker phải cùng chạy; xem phần MQTT bên dưới.
 
 ## 6. Setup Dashboard
 
-Chỉ bắt buộc với thành viên làm React, giao diện hoặc tích hợp Firebase phía web.
+Chỉ bắt buộc với thành viên làm React hoặc giao diện Web User/Admin.
 
 ### 6.1. Kiểm tra Node.js
 
@@ -267,13 +263,13 @@ Dùng `npm ci` cho lần setup đầu tiên. Chỉ dùng `npm install <package>`
 
 `dashboard/node_modules` đã được `.gitignore`; không commit thư mục này.
 
-### 6.3. Tạo cấu hình Firebase cho Dashboard
+### 6.3. Tạo cấu hình API cho Dashboard
 
 ```powershell
 Copy-Item ".\dashboard\.env.example" ".\dashboard\.env.local"
 ```
 
-Thay các giá trị mẫu trong `dashboard/.env.local` bằng Firebase Web App config do người quản lý dự án cung cấp. Không sửa `.env.example` thành thông tin thật và không commit `.env.local`.
+File này chứa `VITE_API_BASE_URL` và `VITE_WS_URL` của FastAPI. Khi mở web từ máy khác, không dùng `127.0.0.1` để trỏ tới laptop; cấu hình địa chỉ LAN phù hợp. Không ghi đè file đã được cấu hình.
 
 ### 6.4. Chạy Dashboard
 
@@ -293,56 +289,29 @@ npm run build
 Pop-Location
 ```
 
-## 7. Setup Firebase
+## 7. Setup MQTT và mạng thiết bị
 
-### 7.1. Phát triển Dashboard không cần quyền Admin
+Cấu hình broker nằm ở `deployment/mosquitto/`. Ba tài khoản là `pbl4_backend`, `s3_plate_ctrl`, `s3_face_cam`; mật khẩu được tạo cục bộ, file `passwd` được Git bỏ qua.
 
-Dashboard chỉ cần Firebase Web App config trong `dashboard/.env.local`. Không cấp service account cho thành viên chỉ làm giao diện.
+Nếu đã có broker/tài khoản, giữ cấu hình hiện tại. Cách tạo mới, khởi động broker và cấu hình `.env` được mô tả ở [hướng dẫn tích hợp](docs/setup/system-integration.md#3-broker-cục-bộ).
 
-### 7.2. Thành viên phụ trách Edge/Firebase Admin
-
-File service account dự kiến đặt tại:
-
-```text
-edge-server/configs/firebase-credentials.json
-```
-
-File này đã được `.gitignore`. Chỉ người phụ trách backend cần nhận file qua kênh an toàn. Không đổi tên thành file không khớp quy tắc ignore rồi commit.
-
-### 7.3. Firebase Emulator tùy chọn
-
-Thành viên cần kiểm thử rules cục bộ có thể chạy từ thư mục `firebase`:
-
-```powershell
-Push-Location ".\firebase"
-npx firebase-tools emulators:start --project demo-smart-parking
-Pop-Location
-```
-
-Lần đầu, `npx` có thể hỏi tải `firebase-tools`; chỉ đồng ý khi package đến từ npm chính thức. Không cần đăng nhập Firebase để dùng project ID bắt đầu bằng `demo-` cho kiểm thử cục bộ.
+Hai ESP và laptop cùng nối Wi-Fi 2.4 GHz. Backend nghe trên cổng 8000, MQTT trên cổng 1883; MySQL ở laptop. mDNS và khả năng kết nối lại khi đổi IP phải được kiểm chứng trên hotspot và bo thật.
 
 ## 8. Setup ESP32
 
-Chỉ bắt buộc với thành viên phụ trách firmware hoặc kiểm thử phần cứng.
-
-1. Cài Arduino IDE 2.x.
-2. Trong Boards Manager, cài **esp32 by Espressif Systems**.
-3. Mở file:
-
-   ```text
-   firmware/esp32_smart_parking/esp32_smart_parking.ino
-   ```
-
-4. Sao chép cấu hình mẫu:
+1. Cài PlatformIO IDE trong VS Code và mở terminal PlatformIO tại gốc repository.
+2. Tạo `firmware/esp32_smart_parking/config.local.h` theo [hướng dẫn tích hợp](docs/setup/system-integration.md#4-firmware-hai-bo). File này được Git bỏ qua. Không đặt `BOARD_ROLE` trong file riêng.
+3. Kiểm tra chân theo [hardware-wiring.md](docs/setup/hardware-wiring.md) và đúng phiên bản bo mua thực tế.
+4. Build từng vai trò:
 
    ```powershell
-   Copy-Item ".\firmware\esp32_smart_parking\config.example.h" ".\firmware\esp32_smart_parking\config.h"
+   pio run -d firmware -e face-camera
+   pio run -d firmware -e plate-controller
    ```
 
-5. Chọn đúng board ESP32, cổng COM và kiểm tra chân trong `pins.h` theo mạch thực tế.
-6. Compile trước, sau đó mới upload lên board.
+5. Chọn đúng bo và cổng COM trước khi upload. Môi trường `wokwi-controller` chỉ dùng mô phỏng, không dùng để xác nhận camera/Wi-Fi thật.
 
-Firmware hiện vẫn có một số hàm phần cứng ở dạng khung. Compile thành công không có nghĩa servo, LCD và buzzer đã hoạt động đầy đủ; cần kiểm thử từng sketch trong `firmware-tests/` trước khi ghép hệ thống.
+Build thành công chưa chứng minh phần cứng hoạt động. Cần thử camera/PSRAM, IR, nguồn servo, barie, OLED và mất kết nối trên thiết bị thật. Các sketch test rỗng trước đây đã được loại bỏ.
 
 ## 9. Quy trình làm việc hằng ngày bằng GitHub Desktop
 
@@ -384,9 +353,9 @@ docs(setup): add dashboard onboarding steps
 - `.venv/`, `venv/`
 - `dashboard/node_modules/`, `dashboard/dist/`
 - Mọi file `.env` và `dashboard/.env.local`
-- `edge-server/configs/firebase-credentials.json` và mọi service-account JSON
+- Mọi service-account JSON hoặc credential riêng
 - Model `.onnx`, `.pt`, `.weights` hoặc file model nén
-- SQLite database trong `edge-server/var/db/`
+- File database cục bộ, bản sao lưu và dump MySQL có dữ liệu riêng
 - Log, cache, ảnh biển số hoặc ảnh chụp từ camera
 - File build Arduino như `.bin`, `.hex`, `.elf`
 
@@ -460,7 +429,7 @@ Không chọn tùy tiện **Discard changes**. Trong GitHub Desktop, mở danh s
 - [ ] `pip check` không báo lỗi.
 - [ ] Có đủ 5 file ONNX của `buffalo_l`.
 - [ ] Webcam chạy được bằng `--provider cpu`.
-- [ ] SQLite migration chạy thành công nếu nhiệm vụ cần database.
+- [ ] MySQL migration chạy thành công nếu nhiệm vụ cần database.
 
 ### Thành viên Dashboard
 
@@ -471,8 +440,8 @@ Không chọn tùy tiện **Discard changes**. Trong GitHub Desktop, mở danh s
 
 ### Thành viên Firmware
 
-- [ ] Arduino IDE nhận đúng ESP32 và cổng COM.
-- [ ] Có `config.h` cục bộ.
+- [ ] PlatformIO nhận đúng ESP32-S3 và cổng COM.
+- [ ] Có `config.local.h` cục bộ.
 - [ ] Compile được sketch chính.
 - [ ] Đã kiểm tra đúng sơ đồ chân trước khi cấp nguồn cho phần cứng.
 

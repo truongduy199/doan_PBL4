@@ -14,10 +14,13 @@ Mỗi bản tin thiết bị có `device_id`, `boot_id` không rỗng, `sequence
 | `parking/devices/s3_plate_ctrl/event_ack` | Backend → controller: `boot_id`, `sequence`, `accepted`, lý do nếu có. Firmware ngừng retry bản tin tương ứng. Không phải xác nhận servo hay xe qua. |
 | `parking/slots/snapshot` | Controller → backend: envelope và `slots: {A1, A2, B1, B2}` với `Free`, `Occupied`, `Unknown` hoặc `Fault`; `sensors` chứa slot/sensor ID, mức raw và trạng thái ổn định; server gắn thời điểm tiếp nhận. |
 | `parking/cameras/plate/capture`, `parking/cameras/face/capture` | Backend → camera: `event_id`, `gate_id`, `roi`, `request_id`, `frame_id`, `issued_at`, `expires_at_ms`, `ttl_ms`. |
+| `parking/cameras/plate/stream`, `parking/cameras/face/stream` | Backend → camera: `action=START/STOP`, `event_id`, `stream_id`, `gate_id`, `roi`, `expires_at_ms`. START cấp phiên tối đa 30 giây; gia hạn giữ nguyên mã luồng và số thứ tự khung. STOP chỉ áp dụng khi khớp mã luồng/lượt. Không retain. |
 | `parking/gates/IN/command`, `parking/gates/OUT/command` | Backend → controller: `event_id`, `command_id`, `gate_id`, `action`, `assigned_slot_id`, `available_slots`, `issued_at`, `expires_at`, `expires_at_ms`, `expires_in_ms`. |
 | `parking/devices/{device_id}/ack` | Thiết bị → backend: envelope, `event_id`, `command_id`, `gate_id`, `ack_received`, `accepted`, `servo_command_issued`, `reason`. |
 | `parking/devices/{device_id}/status` | Thiết bị → backend: envelope, `online`, `camera_ready`, `queue_drops`; controller thêm state/event của hai cổng. |
 | `parking/display/status` | Backend → controller: `available_slots` theo nghiệp vụ và `expires_at_ms`. OLED không dùng số ô IR trống để tự suy ra quyền nhận xe. |
+
+Firmware hiện gửi luồng qua `POST /api/device/mjpeg` với `Transfer-Encoding: chunked`, `Content-Type: multipart/x-mixed-replace; boundary=frame`. Headers kết nối: `X-Device-Key`, `X-Device-Id`, `X-Camera-Id`, `X-Event-Id`, `X-Stream-Id`, `X-Gate-Id`, `X-ROI`. Từng phần có `Content-Length`, `Content-Type: image/jpeg`, `X-Frame-Id` tăng dần theo mã luồng. Giới hạn mỗi phần 5 MiB, header 2 KiB và thời gian không có dữ liệu 5 giây; phiên vẫn chịu deadline/gia hạn MQTT. `/api/device/images` giữ nguyên cho ảnh AI; `/api/device/stream` được giữ tương thích với firmware cũ gửi từng JPEG.
 
 `event_type`: `DETECTED`, `VEHICLE_LEFT_BEFORE_DECISION`, `BACKEND_DECISION_TIMEOUT`, `OBSTACLE_DURING_CLOSING`, `PASSAGE_CONFIRMED`. `action`: `OPEN`, `DENY`, `REVIEW_REQUIRED`. Firmware kiểm tra deadline tuyệt đối theo đồng hồ đã đồng bộ, đúng event/gate và xe vẫn hiện diện. OPEN/chụp không retain. Backend publish QoS 1; PubSubClient publish QoS 0 nên sự kiện cổng có retry/ACK ứng dụng. Outbox firmware nằm trong RAM, không bảo đảm tồn tại qua mất nguồn.
 

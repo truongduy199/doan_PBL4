@@ -1,1 +1,0 @@
-﻿# Vẽ đường cong ROC

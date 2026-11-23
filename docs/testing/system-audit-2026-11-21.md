@@ -11,7 +11,7 @@
 | YOLO biển số | Có `best.pt`, 6.252.906 byte; archive CRC hợp lệ. Chưa chạy suy luận YOLO vì thiếu PyTorch/Ultralytics/OpenCV trong môi trường. |
 | OCR NumPy | Có `ocr_coco_weights.npz`, 4.027.326 byte. Các tensor đúng shape, hữu hạn. Nạp trọng số thật và chạy forward trên 2 đầu vào; trả 36 xác suất mỗi đầu vào, tổng xấp xỉ 1. Đây không phải bài đo độ chính xác nhận diện biển số. |
 | SCRFD / ArcFace | Chưa có các model ONNX cần thiết trong thư mục Buffalo-L của repo. Không chạy được suy luận khuôn mặt thật. |
-| Liveness | Chưa có `addons/liveness.onnx`; cũng chưa xác minh bản InsightFace/addon tương thích của Nam. Không tự thay bằng trạng thái Passed. |
+| Liveness | Chưa có `addons/liveness.onnx`; cũng chưa xác minh bản InsightFace/addon liveness tương thích. Không tự thay bằng trạng thái Passed. |
 | Đánh giá | Các script trong `evaluation/` hiện là khung chú thích, chưa tạo kết quả đánh giá. Không có bằng chứng đo TAR/FAR/accuracy/latency độc lập để công bố. |
 
 Đã thay script hash chỉ in thông báo bằng kiểm tra SHA256, CRC và forward OCR thật. Manifest tại `contracts/models.sha256.json` ghi nhận trọng số hiện có; nó phát hiện thay đổi tệp, không chứng nhận nguồn train hoặc chất lượng model. Kiểm tra bằng `python edge-server/scripts/verify_model_hashes.py`; thêm `--require-face` để báo lỗi khi thiếu tài nguyên mặt/liveness.
@@ -44,7 +44,7 @@ Chưa xác nhận trực quan desktop/mobile, bố cục sau render, thao tác b
 
 ## Kiểm tra tiếp trên máy có môi trường đầy đủ
 
-1. Cài phụ thuộc backend và đúng bộ InsightFace/addon của Nam; nạp Buffalo-L và liveness thật.
+1. Cài phụ thuộc backend và đúng bộ InsightFace/addon liveness; nạp Buffalo-L và liveness thật.
 2. Kiểm tra kết nối MySQL/broker và cấu hình `.env`, không reset dữ liệu demo.
 3. Trong `dashboard`, chạy `npm install` rồi `npm run build`; backend ưu tiên bản dist.
 4. Khởi động backend, mở `/login`, kiểm tra cả USER/ADMIN, đặt/hủy/đếm ngược/lịch sử/review, desktop/mobile và mất kết nối.
@@ -52,4 +52,4 @@ Chưa xác nhận trực quan desktop/mobile, bố cục sau render, thao tác b
 
 Script `npm test` hiện tham chiếu Vitest nhưng manifest chưa khai báo Vitest; cần bổ sung phụ thuộc kiểm thử khi chuẩn bị môi trường frontend test. Không nhầm với kết quả chuyển đổi mã đã chạy ở trên.
 
-Quy ước style: [ui-style-guide.md](../ui-style-guide.md). Triển khai phần cổng: [duy-handover.md](../setup/duy-handover.md).
+Quy ước style: [ui-style-guide.md](../ui-style-guide.md). Triển khai phần cổng: [system-integration.md](../setup/system-integration.md).

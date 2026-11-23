@@ -4,6 +4,7 @@
 #include <Arduino.h>
 
 void initDisplay();
+bool isDisplayReady();
 void displayMessage(const char* line1, const char* line2);
 void updateOledDashboard(
     const char* gateInStateStr,

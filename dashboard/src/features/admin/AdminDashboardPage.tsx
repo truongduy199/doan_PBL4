@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { ApiClient, ApiError } from "../../services/api.client";
+import { API_BASE_URL, ApiClient, ApiError } from "../../services/api.client";
 import { ParkingService } from "../../services/parking.service";
 import { ReviewService } from "../../services/review.service";
 import { SessionService, GatewayStatus, AuditLogDTO } from "../../services/session.service";
@@ -17,6 +17,42 @@ import { AppShell, Notice, StatusBadge, ParkingFloorPlan, SummaryStat, EmptyStat
 interface AdminDashboardPageProps {
   user: UserProfile;
   onLogout: () => void;
+}
+
+interface CameraSnapshot {
+  camera_id: string;
+  image_base64: string | null;
+  has_image?: boolean;
+  captured_at?: string;
+  expires_at?: string;
+  event_id?: string;
+  resolution?: number[];
+  reason_code?: string;
+  decision?: string;
+  gate_id?: string;
+  stream_id?: string;
+  frame_sequence?: number;
+  recognition?: {
+    ok: boolean;
+    reason_code: string;
+    message: string;
+    plate_number?: string;
+    display_plate?: string;
+    raw_text?: string;
+    liveness_status?: string;
+    liveness_score?: number | null;
+    template_saved?: boolean;
+    session_id?: string | null;
+    similarity_score?: number | null;
+  };
+}
+
+interface CameraStreamStatus {
+  active: boolean;
+  stream_id?: string | null;
+  expires_at?: string | null;
+  preview?: boolean;
+  frames_received?: Record<string, number>;
 }
 
 function formatAdminVnDateTime(isoStr: string | null | undefined): string {
@@ -38,7 +74,7 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    "overview" | "sessions" | "bookings" | "reviews" | "devices" | "logs"
+    "overview" | "sessions" | "bookings" | "reviews" | "devices" | "logs" | "cameras"
   >("overview");
 
   const [slots, setSlots] = useState<ParkingSlotView[]>([]);
@@ -54,6 +90,10 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [pendingReview, setPendingReview] = useState<string | null>(null);
   const [serverOffsetMs, setServerOffsetMs] = useState(0);
   const [clockMs, setClockMs] = useState(Date.now());
+  const [cameras, setCameras] = useState<CameraSnapshot[]>([]);
+  const [cameraStream, setCameraStream] = useState<CameraStreamStatus>({ active: false });
+  const [cameraIssue, setCameraIssue] = useState<string | null>(null);
+  const [captureUntil, setCaptureUntil] = useState(0);
   const [reviewReasons, setReviewReasons] = useState<Record<string, string>>({});
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -61,6 +101,64 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
   const [actionIssue, setActionIssue] = useState<string | null>(null);
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [realtimeOnline, setRealtimeOnline] = useState<boolean>(false);
+
+  const loadCameras = useCallback(async () => {
+    try {
+      const result = await ApiClient.get<{ cameras: CameraSnapshot[]; stream: CameraStreamStatus; server_time: string }>("/api/admin/cameras?images=0");
+      setCameras(result.cameras);
+      setCameraStream(result.stream || { active: false });
+      setServerOffsetMs(Date.parse(result.server_time) - Date.now());
+      setCameraIssue(null);
+    } catch (error) {
+      setCameras([]);
+      setCameraStream({ active: false });
+      setCameraIssue(error instanceof Error ? error.message : "Chưa tải được ảnh camera.");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!["overview", "cameras", "devices"].includes(activeTab)) {
+      setCameras([]);
+      return;
+    }
+    let active = true;
+    let loading = false;
+    const refresh = async () => {
+      if (!active || loading) return;
+      loading = true;
+      try { await loadCameras(); } finally { loading = false; }
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [activeTab, loadCameras]);
+
+  useEffect(() => {
+    setCameras((previous) => previous.some((camera) => camera.image_base64 && Date.parse(camera.expires_at || "") <= clockMs + serverOffsetMs)
+      ? previous.map((camera) => Date.parse(camera.expires_at || "") <= clockMs + serverOffsetMs ? { ...camera, image_base64: null } : camera)
+      : previous);
+  }, [clockMs, serverOffsetMs]);
+
+  const captureCameras = async () => {
+    setCaptureUntil(Date.now() + 6000);
+    try {
+      await ApiClient.post("/api/admin/cameras/capture");
+      setActionFeedback("Đã yêu cầu hai camera chụp kiểm tra. Ảnh sẽ tự cập nhật; thao tác này không mở cổng.");
+    } catch (error) {
+      setCaptureUntil(0);
+      setCameraIssue(error instanceof Error ? error.message : "Chưa gửi được yêu cầu chụp.");
+    }
+  };
+
+  const controlCameraStream = async (action: "START" | "STOP") => {
+    try {
+      await ApiClient.post("/api/admin/cameras/stream", { action });
+      setActionFeedback(action === "START" ? "Đã yêu cầu phát hình kiểm tra trong 30 giây. Thao tác này không mở cổng." : "Đã yêu cầu dừng phát hình.");
+      await loadCameras();
+    } catch (error) {
+      setCameraIssue(error instanceof Error ? error.message : "Chưa điều khiển được camera.");
+    }
+  };
 
   const loadAdminData = useCallback(async () => {
     try {
@@ -154,8 +252,9 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     { id: "overview", label: "Tổng quan" }, { id: "sessions", label: "Lượt gửi xe" },
     { id: "bookings", label: "Đặt chỗ" }, { id: "reviews", label: "Cần kiểm tra" },
     { id: "devices", label: "Thiết bị" }, { id: "logs", label: "Nhật ký" },
+    { id: "cameras", label: "Camera" },
   ].map((tab) => <button key={tab.id} className={`nav-tab ${activeTab === tab.id ? "is-active" : ""}`} aria-current={activeTab === tab.id ? "page" : undefined} onClick={() => setActiveTab(tab.id as typeof activeTab)}>{tab.label}{tab.id === "reviews" && reviews.length > 0 && <span className="tab-count">{reviews.length}</span>}</button>)}</>;
-  const tabTitles: Record<string, string> = { overview: "Tình hình bãi đỗ", sessions: "Lượt gửi xe", bookings: "Đặt chỗ", reviews: "Các trường hợp cần kiểm tra", devices: "Thiết bị và kết nối", logs: "Nhật ký vận hành" };
+  const tabTitles: Record<string, string> = { overview: "Tình hình bãi đỗ", sessions: "Lượt gửi xe", bookings: "Đặt chỗ", reviews: "Các trường hợp cần kiểm tra", devices: "Thiết bị và kết nối", logs: "Nhật ký vận hành", cameras: "Camera tại cổng" };
   const visibleSessions = activeTab === "overview" ? sessions.filter((session) => ["Entry_pending", "Active", "Exit_pending"].includes(session.status)).slice(0, 6) : sessions;
 
   return <AppShell user={user} onLogout={onLogout} navigation={navigation}>
@@ -165,6 +264,39 @@ export const AdminDashboardPage: React.FC<AdminDashboardPageProps> = ({
     {actionIssue && <Notice tone="error" onClose={() => setActionIssue(null)}>{actionIssue}</Notice>}
     {isLoading && <Notice>Đang tải dữ liệu bãi đỗ…</Notice>}
     <div className="summary-grid"><SummaryStat label="Ô có thể nhận xe" value={isLoading || apiError ? "—" : `${availableCount}/4`} detail="Theo trạng thái và quyền giữ ô" /><SummaryStat label="Xe đang trong lượt gửi" value={isLoading ? "—" : activeSessionsCount} detail="Gồm lượt đang qua cổng" /><SummaryStat label="Đặt chỗ đang giữ" value={isLoading ? "—" : activeBookingsCount} detail="Đang giữ hoặc đang đối soát" /><SummaryStat label="Cần kiểm tra" value={isLoading ? "—" : reviews.length} detail="Cổng vào, cổng ra và vị trí đỗ" /></div>
+
+    {["overview", "cameras", "devices"].includes(activeTab) && <section className="panel">
+      <div className="panel-header"><div><h2>Camera tại cổng</h2><p>IR phát hiện xe sẽ bật hai camera; kết thúc lượt thì dừng. Xem trực tiếp MJPEG, mục tiêu 5 khung/giây mỗi bo.</p></div>
+        <div className="row"><button className="button" disabled={!mqttConnected || clockMs < captureUntil || cameraStream.active} onClick={captureCameras}>{clockMs < captureUntil ? "Đang chờ ảnh…" : "Chụp một ảnh"}</button>
+        {cameraStream.active ? <button className="button" onClick={() => controlCameraStream("STOP")}>Dừng phát hình</button>
+          : <button className="button button-primary" disabled={!mqttConnected} onClick={() => controlCameraStream("START")}>Xem trực tiếp 30 giây</button>}</div></div>
+      <div className="panel-body small muted" style={{ paddingBottom: 0 }}>{cameraStream.active ? (cameraStream.preview ? "Đang phát hình kiểm tra" : "Đang phát hình theo lượt xe") : "Đã dừng phát hình. Ảnh cuối tự hết hạn sau 30 giây."}</div>
+      {cameraIssue && <Notice tone="error">{cameraIssue}</Notice>}
+      <div className="panel-body device-grid">{["cam_plate", "cam_face"].map((id) => {
+        const camera = cameras.find((item) => item.camera_id === id);
+        const visible = camera?.has_image && Date.parse(camera.expires_at || "") > clockMs + serverOffsetMs;
+        const live = cameraStream.active && cameraStream.stream_id;
+        const cameraUrl = live
+          ? `${API_BASE_URL}/api/admin/cameras/${id}/mjpeg?stream_id=${encodeURIComponent(cameraStream.stream_id!)}`
+          : `${API_BASE_URL}/api/admin/cameras/${id}/image?t=${encodeURIComponent(camera?.captured_at || "")}`;
+        const fresh = cameraStream.active && camera?.stream_id === cameraStream.stream_id && clockMs + serverOffsetMs - Date.parse(camera?.captured_at || "") < 3000;
+        return <article className="device-card stack" key={id}>
+          <div className="row spread"><h3>{id === "cam_plate" ? "Camera biển số" : "Camera khuôn mặt"}</h3><span className="small muted">{cameraStream.active ? (fresh ? "Đang nhận hình" : "Chờ khung hình") : "Ảnh gần nhất"}</span></div>
+          {live || visible ? <img key={cameraUrl} alt={id === "cam_plate" ? "Ảnh biển số gần nhất tại cổng" : "Ảnh khuôn mặt gần nhất tại cổng"} src={cameraUrl} style={{ width: "100%", maxHeight: 320, objectFit: "contain", background: "#17211c", borderRadius: 6 }} />
+            : <EmptyState>Chưa có ảnh mới. Đưa xe tới IR cổng vào hoặc bấm chụp kiểm tra.</EmptyState>}
+          {visible && <><span className="small muted">{formatAdminVnDateTime(camera.captured_at)} · {camera.resolution?.join(" × ")}</span>{cameraStream.active && <span className="small muted">Đã nhận {cameraStream.frames_received?.[id] || 0} khung hình</span>}{camera.reason_code && <span className="small">Kết quả: {camera.reason_code}</span>}</>}
+          {visible && camera.recognition && <div className="stack small" aria-label="Kết quả nhận diện AI">
+            <strong>{id === "cam_plate"
+              ? (camera.recognition.ok ? `Biển số: ${camera.recognition.display_plate || camera.recognition.plate_number}` : `OCR chưa đạt${camera.recognition.raw_text ? `: ${camera.recognition.raw_text}` : ""}`)
+              : (camera.recognition.ok ? "Khuôn mặt hợp lệ" : "Khuôn mặt chưa đạt")}</strong>
+            <span>{camera.recognition.message}</span>
+            {camera.recognition.liveness_status && <span>Kiểm tra người thật: {camera.recognition.liveness_status === "Passed" ? "Đạt" : "Chưa đạt"}</span>}
+            {camera.recognition.template_saved && <span>Đã lưu mẫu khuôn mặt vào phiên {camera.recognition.session_id}.</span>}
+            {camera.recognition.similarity_score != null && <span>Điểm đối chiếu khuôn mặt: {camera.recognition.similarity_score.toFixed(3)}</span>}
+          </div>}
+        </article>;
+      })}</div>
+    </section>}
 
     {activeTab === "overview" && <div className="booking-layout"><section className="panel"><div className="panel-header"><h2>Sơ đồ bãi đỗ</h2><span className="small muted">A1 · A2 · B1 · B2</span></div><ParkingFloorPlan slots={slots} admin /></section>
       <aside className="panel"><div className="panel-header"><h2>Tình trạng vận hành</h2></div><div className="panel-body stack"><div className="row spread"><span>Cảm biến ô đỗ</span><StatusBadge status={overallDeviceStatus === "HEALTHY" ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={overallDeviceStatus === "HEALTHY" ? "Dữ liệu hợp lệ" : "Cần kiểm tra"} /></div><div className="row spread"><span>Kết nối thiết bị</span><StatusBadge status={mqttConnected ? "AVAILABLE" : "UNKNOWN_OR_FAULT"} label={mqttConnected ? "Đã kết nối" : "Chưa kết nối"} /></div><div className="section-rule" style={{ margin: 0 }} />

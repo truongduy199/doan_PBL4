@@ -5,8 +5,8 @@ Coordinates:
 - Holding new Gate IN entry requests while a prior vehicle is still `Parking_pending` (Section V.1).
 - Receiving fresh JPEG frames from the two ESP32-S3 OV5640 cameras via `POST /api/device/images`
   (validating `event_id`, `camera_id`, `frame_id`, `gate_id`, `roi`, image decoding, freshness, and deduplication).
-- Calling Nam's `PlatePipeline` + `FacePipeline` + `FaceVerifier` outside DB transactions.
-- Calling Việt's `GateDataService` short transactions and publishing MQTT barrier commands after commit.
+- Calling `PlatePipeline` + `FacePipeline` + `FaceVerifier` outside DB transactions.
+- Calling `GateDataService` short transactions and publishing MQTT barrier commands after commit.
 """
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import json
+import base64
+import re
 import logging
 import threading
 import uuid
@@ -65,12 +67,13 @@ class GateTurnContext:
     capture_started_at: Optional[datetime] = None
     plate_outcome: Optional[PlateRecognitionOutcome] = None
     face_result: Optional[FacePipelineResult] = None
+    requested_samples: int = 1
 
 
 class GateWorkflowService:
     """
-    Central coordinator connecting ESP32-S3 HTTP/MQTT events, Nam's AI pipelines,
-    and Việt's MySQL transactional `GateDataService`.
+    Central coordinator connecting ESP32-S3 HTTP/MQTT events, AI pipelines,
+    and the MySQL transactional `GateDataService`.
     """
 
     def __init__(
@@ -105,6 +108,176 @@ class GateWorkflowService:
         self._device_boots: Dict[str, str] = {}
         self._retired_boots = deque(maxlen=100)
         self._last_display_update: Optional[datetime] = None
+        self._camera_images: Dict[str, Dict[str, Any]] = {}
+        self._preview_capture: Optional[Dict[str, Any]] = None
+        self._camera_stream: Optional[Dict[str, Any]] = None
+
+    def _send_camera_stream_control(self, action: str, session: Dict[str, Any]) -> None:
+        for camera in ("plate", "face"):
+            self._publish_mqtt(f"parking/cameras/{camera}/stream", {
+                "action": action, "event_id": session["event_id"], "stream_id": session["stream_id"],
+                "gate_id": session["gate_id"], "roi": session["roi"],
+                "expires_at_ms": int(session["expires_at"].timestamp() * 1000)})
+
+    def _stop_camera_stream(self) -> None:
+        session = self._camera_stream
+        self._camera_stream = None
+        if session:
+            self._send_camera_stream_control("STOP", session)
+
+    def _start_camera_stream(self, event_id: str, gate_id: str, now: datetime, *, preview: bool = False) -> Dict[str, Any]:
+        self._stop_camera_stream()
+        self._preview_capture = None
+        session = {"event_id": event_id, "stream_id": uuid.uuid4().hex[:20], "gate_id": gate_id,
+                   "roi": f"ROI_{gate_id}", "expires_at": now + timedelta(seconds=30),
+                   "last_refresh": now, "preview": preview, "sequences": {"cam_plate": 0, "cam_face": 0},
+                   "frames_received": {"cam_plate": 0, "cam_face": 0}}
+        self._camera_stream = session
+        self._send_camera_stream_control("START", session)
+        return {"event_id": event_id, "stream_id": session["stream_id"], "status": "STREAM_REQUESTED",
+                "expires_at": format_utc_iso(session["expires_at"])}
+
+    def request_camera_stream(self, now_utc: Optional[datetime] = None) -> Dict[str, Any]:
+        now = now_utc or utc_now()
+        with self._lock:
+            self._expire_camera_images(now)
+            if self._active_event_id or self._queue or self._camera_stream:
+                raise DomainException("Camera đang phục vụ lượt xe hoặc đang phát hình.", reason_code="CAMERA_BUSY", http_status=409)
+            return self._start_camera_stream("view-" + uuid.uuid4().hex[:20], "IN", now, preview=True)
+
+    def stop_camera_stream(self) -> Dict[str, Any]:
+        with self._lock:
+            self._stop_camera_stream()
+            return {"status": "STREAM_STOPPED"}
+
+    def ingest_stream_image(self, image_bytes: bytes, event_id: str, camera_id: str, device_id: str,
+                            frame_id: str, gate_id: str, roi: str, now_utc: Optional[datetime] = None) -> Dict[str, Any]:
+        """Validate live JPEGs for display only; never invoke AI or gate/database services."""
+        now = now_utc or utc_now()
+        with self._lock:
+            self._expire_camera_images(now)
+            session = self._camera_stream
+            if not session or session["event_id"] != event_id:
+                raise DomainException("Luồng hình không còn hoạt động.", reason_code="STREAM_EXPIRED", http_status=409)
+            if camera_id not in ("cam_plate", "cam_face"):
+                raise DomainException("Invalid stream camera.", reason_code="CAPTURE_METADATA_MISMATCH", http_status=409)
+            role = "plate" if camera_id == "cam_plate" else "face"
+            expected_device = self.settings.controller_device_id if role == "plate" else self.settings.face_camera_device_id
+            match = re.fullmatch(r"live-" + re.escape(session["stream_id"]) + "-" + role + r"-([1-9][0-9]{0,9})", frame_id)
+            if device_id != expected_device or gate_id != session["gate_id"] or roi != session["roi"] or not match:
+                raise DomainException("Stream metadata mismatch.", reason_code="CAPTURE_METADATA_MISMATCH", http_status=409)
+            sequence = int(match.group(1))
+            if sequence <= session["sequences"][camera_id]:
+                raise DomainException("Frame cũ hoặc trùng.", reason_code="STALE_STREAM_FRAME", http_status=409)
+            if len(image_bytes) < 64 or len(image_bytes) > 5 * 1024 * 1024 or not image_bytes.startswith(b"\xff\xd8"):
+                raise DomainException("Invalid stream JPEG.", reason_code="INVALID_JPEG_DATA")
+            import cv2
+            frame = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+            if frame is None or frame.size == 0:
+                raise DomainException("Invalid stream JPEG.", reason_code="INVALID_JPEG_DATA")
+            session["sequences"][camera_id] = sequence
+            session["frames_received"][camera_id] += 1
+            self._remember_camera_image(camera_id, image_bytes, frame, event_id, gate_id, now)
+            self._camera_images[camera_id]["stream_id"] = session["stream_id"]
+            self._camera_images[camera_id]["frame_sequence"] = sequence
+            return {"accepted": True, "stream": True, "camera_id": camera_id, "sequence": sequence}
+
+    def _expire_camera_images(self, now: datetime) -> None:
+        for camera, image in list(self._camera_images.items()):
+            if now >= image["expires_at"]:
+                del self._camera_images[camera]
+        if self._preview_capture and now >= self._preview_capture["expires_at"]:
+            self._preview_capture = None
+        if self._camera_stream and now >= self._camera_stream["expires_at"]:
+            self._stop_camera_stream()
+
+    def _remember_camera_image(self, camera: str, image: bytes, frame: np.ndarray,
+                               event_id: str, gate_id: str, now: datetime) -> None:
+        self._camera_images[camera] = {"jpeg": image, "event_id": event_id, "gate_id": gate_id,
+            "captured_at": now, "expires_at": now + timedelta(seconds=30),
+            "resolution": [int(frame.shape[1]), int(frame.shape[0])]}
+
+    def validate_stream_upload(self, stream_id: str, event_id: str, camera_id: str,
+                               device_id: str, gate_id: str, roi: str) -> None:
+        with self._lock:
+            self._expire_camera_images(utc_now())
+            session = self._camera_stream
+            expected = {"cam_plate": self.settings.controller_device_id, "cam_face": self.settings.face_camera_device_id}
+            if (not session or stream_id != session["stream_id"] or event_id != session["event_id"]
+                    or gate_id != session["gate_id"] or roi != session["roi"]
+                    or device_id != expected.get(camera_id)):
+                raise DomainException("MJPEG session mismatch or expired.", reason_code="STREAM_EXPIRED", http_status=409)
+
+    def camera_jpeg(self, camera_id: str, stream_id: Optional[str] = None):
+        """Return immutable JPEG bytes; never expose mutable session state."""
+        with self._lock:
+            self._expire_camera_images(utc_now())
+            active = bool(self._camera_stream and self._camera_stream["stream_id"] == stream_id)
+            image = self._camera_images.get(camera_id)
+            if stream_id and (not active or not image or image.get("stream_id") != stream_id):
+                return active, None, None
+            return active, image.get("captured_at") if image else None, image.get("jpeg") if image else None
+
+    def camera_snapshots(self, now_utc: Optional[datetime] = None, *, include_images: bool = True) -> Dict[str, Any]:
+        now = now_utc or utc_now()
+        with self._lock:
+            self._expire_camera_images(now)
+            cameras = []
+            for camera in ("cam_plate", "cam_face"):
+                image = self._camera_images.get(camera)
+                item: Dict[str, Any] = {"camera_id": camera, "image_base64": None, "has_image": bool(image)}
+                if image:
+                    item.update({k: v for k, v in image.items() if k not in ("jpeg", "captured_at", "expires_at")})
+                    item.update(image_base64=base64.b64encode(image["jpeg"]).decode("ascii") if include_images else None,
+                                captured_at=format_utc_iso(image["captured_at"]), expires_at=format_utc_iso(image["expires_at"]))
+                    turn = self._turns.get(image["event_id"])
+                    if turn:
+                        recognition: Dict[str, Any] = {}
+                        if camera == "cam_plate" and turn.plate_outcome:
+                            result = turn.plate_outcome
+                            recognition = {"ok": result.ok, "reason_code": result.reason_code,
+                                           "message": result.message, "plate_number": result.normalized_plate,
+                                           "display_plate": result.display_plate, "raw_text": result.raw_text}
+                        elif camera == "cam_face" and turn.face_result:
+                            result = turn.face_result
+                            recognition = {"ok": result.ok, "reason_code": result.reason_code,
+                                           "message": result.message, "quality_score": result.quality_score,
+                                           "liveness_status": result.liveness_status, "liveness_score": result.liveness_score,
+                                           "valid_sample_count": result.valid_sample_count}
+                            decision = turn.last_decision or {}
+                            recognition["session_id"] = decision.get("session_id")
+                            recognition["template_saved"] = bool(turn.gate_id == "IN" and decision.get("decision") == "Approved" and decision.get("session_id"))
+                            recognition["similarity_score"] = decision.get("similarity_score")
+                        if recognition:
+                            item["recognition"] = recognition
+                    if turn and turn.last_decision:
+                        item["decision"] = turn.last_decision.get("decision")
+                        item["reason_code"] = turn.last_decision.get("reason_code")
+                cameras.append(item)
+            session = self._camera_stream
+            return {"cameras": cameras, "server_time": format_utc_iso(now), "retention_seconds": 30,
+                    "stream": {"active": bool(session), "event_id": session["event_id"] if session else None,
+                               "stream_id": session["stream_id"] if session else None,
+                               "expires_at": format_utc_iso(session["expires_at"]) if session else None,
+                               "preview": session["preview"] if session else False,
+                               "frames_received": dict(session["frames_received"]) if session else {}}}
+
+    def request_camera_preview(self, now_utc: Optional[datetime] = None) -> Dict[str, Any]:
+        now = now_utc or utc_now()
+        with self._lock:
+            self._expire_camera_images(now)
+            if self._active_event_id or self._queue or self._camera_stream:
+                raise DomainException("Cổng đang xử lý xe; ưu tiên ảnh của lượt hiện tại.", reason_code="CAMERA_BUSY", http_status=409)
+            if self._preview_capture and self._preview_capture["remaining"]:
+                raise DomainException("Đang chờ ảnh chụp kiểm tra.", reason_code="CAMERA_BUSY", http_status=409)
+            event = "preview-" + uuid.uuid4().hex[:20]
+            self._preview_capture = {"event_id": event, "expires_at": now + timedelta(seconds=5),
+                                     "remaining": {"cam_plate", "cam_face"}}
+            for camera in ("plate", "face"):
+                self._publish_mqtt(f"parking/cameras/{camera}/capture", {
+                    "event_id": event, "gate_id": "IN", "roi": "ROI_IN",
+                    "frame_id": f"req-{camera}-{event}", "expires_at_ms": int(now.timestamp() * 1000) + 5000})
+            return {"event_id": event, "status": "CAPTURE_REQUESTED", "expires_at": format_utc_iso(now + timedelta(seconds=5))}
 
     def initialize_ai(self) -> None:
         """Load local assets only; startup must never silently download model weights."""
@@ -120,6 +293,13 @@ class GateWorkflowService:
                                      provider=self.settings.face_provider)
         if adapter.initialize():
             self.face_pipeline = FacePipeline(adapter=adapter)
+            try:
+                # Warm YOLO/OCR before accepting gate captures; READY covers both AIs.
+                self.plate_pipeline._ensure_reader()
+            except Exception:
+                logger.exception("Local plate models could not be initialized")
+                self.ai_status = "PLATE_MODEL_UNAVAILABLE"
+                return
             self.ai_status = "READY" if (root / "addons" / "liveness.onnx").is_file() else "LIVENESS_MISSING"
         else:
             self.ai_status = "FACE_MODEL_UNAVAILABLE"
@@ -192,6 +372,8 @@ class GateWorkflowService:
         if event_type not in allowed_types:
             raise DomainException("Unsupported device event.", reason_code="INVALID_EVENT_TYPE")
         with self._lock:
+            if event_type == "DETECTED":
+                self._preview_capture = None  # Real gate events take priority over manual previews.
             existing = self._turns.get(event_id)
             if existing and (existing.gate_id != clean_gate or existing.device_id != device_id or existing.boot_id != boot_id):
                 raise DomainException("Event identity mismatch.", reason_code="EVENT_ID_MISMATCH", http_status=409)
@@ -305,6 +487,8 @@ class GateWorkflowService:
         self._request_camera_captures_for_turn(active_turn, now_dt)
 
     def _request_camera_captures_for_turn(self, turn: GateTurnContext, now_dt: datetime) -> None:
+        turn.requested_samples = self.settings.capture_sample_count
+        self._start_camera_stream(turn.event_id, turn.gate_id, now_dt)
         plate_req = {
             "event_id": turn.event_id,
             "gate_id": turn.gate_id,
@@ -325,12 +509,18 @@ class GateWorkflowService:
             "issued_at": format_utc_iso(now_dt),
             "expires_at_ms": int((now_dt.timestamp() + self.settings.capture_timeout_seconds) * 1000),
         }
-        self._publish_mqtt(TOPIC_CAM_PLATE_CAPTURE, plate_req)
-        self._publish_mqtt(TOPIC_CAM_FACE_CAPTURE, face_req)
+        for sample in range(1, turn.requested_samples + 1):
+            suffix = "" if sample == 1 else f"-{sample}"
+            self._publish_mqtt(TOPIC_CAM_PLATE_CAPTURE, {**plate_req, "frame_id": plate_req["frame_id"] + suffix})
+            self._publish_mqtt(TOPIC_CAM_FACE_CAPTURE, {**face_req, "frame_id": face_req["frame_id"] + suffix})
 
     def _finish_active_turn(self, event_id: str, now_utc: Optional[datetime] = None) -> None:
         now_dt = now_utc or utc_now()
         with self._lock:
+            turn = self._turns.get(event_id)
+            if (self._camera_stream and self._camera_stream["event_id"] == event_id
+                    and (turn is None or turn.state != "REVIEW")):
+                self._stop_camera_stream()
             if event_id in self._queue:
                 self._queue.remove(event_id)
             if self._active_event_id == event_id:
@@ -401,6 +591,19 @@ class GateWorkflowService:
             )
 
         with self._lock:
+            clean_cam = "cam_plate" if clean_cam in ("plate", "cam_plate") else "cam_face"
+            if event_id.startswith("preview-"):
+                preview = self._preview_capture
+                expected_device = self.settings.controller_device_id if clean_cam == "cam_plate" else self.settings.face_camera_device_id
+                expected_frame = f"req-{'plate' if clean_cam == 'cam_plate' else 'face'}-{event_id}"
+                if not preview or preview["event_id"] != event_id or now_dt >= preview["expires_at"]:
+                    raise DomainException("Ảnh kiểm tra đã hết hạn hoặc bị lượt xe thay thế.", reason_code="CAPTURE_EXPIRED", http_status=409)
+                if device_id != expected_device or frame_id != expected_frame or gate_id != "IN" or roi != "ROI_IN":
+                    raise DomainException("Image does not match the requested capture.", reason_code="CAPTURE_METADATA_MISMATCH", http_status=409)
+                self._remember_camera_image(clean_cam, image_bytes, frame_bgr, event_id, gate_id, now_dt)
+                preview["remaining"].discard(clean_cam)
+                return {"accepted": True, "preview": True, "camera_id": clean_cam,
+                        "resolution": [int(frame_bgr.shape[1]), int(frame_bgr.shape[0])], "workflow_decision": None}
             turn = self._turns.get(event_id)
             if turn is None:
                 raise DomainException(
@@ -412,7 +615,9 @@ class GateWorkflowService:
             clean_cam = "cam_plate" if clean_cam in ("plate", "cam_plate") else "cam_face"
             expected_device = self.settings.controller_device_id if clean_cam == "cam_plate" else self.settings.face_camera_device_id
             expected_frame = f"req-{'plate' if clean_cam == 'cam_plate' else 'face'}-{event_id}"
-            if device_id != expected_device or frame_id != expected_frame or gate_id != turn.gate_id or roi != turn.roi:
+            expected_frames = {expected_frame + ("" if sample == 1 else f"-{sample}")
+                               for sample in range(1, turn.requested_samples + 1)}
+            if device_id != expected_device or frame_id not in expected_frames or gate_id != turn.gate_id or roi != turn.roi:
                 raise DomainException("Image does not match the requested capture.", reason_code="CAPTURE_METADATA_MISMATCH", http_status=409)
             if f"{clean_cam}:{frame_id}" in turn.received_frame_keys and turn.state in ("CAPTURING", "DECIDING", "APPROVED", "REVIEW", "COMPLETED"):
                 return {"accepted": True, "duplicate_frame": True, "event_id": event_id,
@@ -454,6 +659,7 @@ class GateWorkflowService:
             if configured_roi and (configured_roi[2] > frame_bgr.shape[1] or configured_roi[3] > frame_bgr.shape[0]):
                 turn.received_frame_keys.discard(dedup_key)
                 raise DomainException("ROI exceeds the camera frame.", reason_code="INVALID_CAMERA_ROI")
+            self._remember_camera_image(clean_cam, image_bytes, frame_bgr, event_id, gate_id, now_dt)
             if "plate" in clean_cam:
                 turn.plate_frames.append(frame_bgr)
             else:
@@ -462,8 +668,8 @@ class GateWorkflowService:
             ready_to_evaluate = (
                 auto_evaluate_when_ready
                 and not turn.evaluated
-                and len(turn.plate_frames) >= 1
-                and len(turn.face_frames) >= 1
+                and len(turn.plate_frames) >= turn.requested_samples
+                and len(turn.face_frames) >= turn.requested_samples
             )
 
         workflow_decision: Optional[Dict[str, Any]] = None
@@ -535,7 +741,8 @@ class GateWorkflowService:
         face_out = face_result_override or self.face_pipeline.process_frames(
             face_frames,
             require_liveness=True,
-            min_valid_samples=1,
+            min_valid_samples=min(2, turn.requested_samples),
+            min_sample_similarity=self.settings.face_t_accept,
             roi=self.settings.gate_rois[("face", gate_id)],
         )
 
@@ -604,6 +811,23 @@ class GateWorkflowService:
                                 "expires_at_ms": int((now.timestamp() + 8) * 1000)})
             self._last_display_update = now
         with self._lock:
+            session = self._camera_stream
+            if session and not session["preview"]:
+                if now >= session["expires_at"]:
+                    self._stop_camera_stream()
+                    session = None
+            if session and not session["preview"]:
+                turn = self._turns.get(session["event_id"])
+                if turn is None or turn.state in ("CANCELLED", "COMPLETED", "PASSAGE_UNCERTAIN"):
+                    self._stop_camera_stream()
+                elif (now - session["last_refresh"]).total_seconds() >= 10:
+                    device = self._device_status.get(self.settings.controller_device_id, {})
+                    seen = device.get("received_at")
+                    recent = seen and (now - datetime.fromisoformat(seen.replace("Z", "+00:00"))).total_seconds() < 20
+                    if recent and device.get(f"gate_{session['gate_id'].lower()}_event_id") == session["event_id"]:
+                        session["expires_at"] = now + timedelta(seconds=30)
+                        session["last_refresh"] = now
+                        self._send_camera_stream_control("START", session)
             for turn in list(self._turns.values()):
                 age = (now - turn.created_at).total_seconds()
                 capture_age = (now - (turn.capture_started_at or now)).total_seconds()
@@ -620,11 +844,13 @@ class GateWorkflowService:
                     turn.face_result = None
                     turn.plate_outcome = None
                     del self._turns[turn.event_id]
+            self._expire_camera_images(now)
             self._advance_queue_locked(now)
 
     def diagnostics(self, now_utc: Optional[datetime] = None) -> Dict[str, Any]:
         now = now_utc or utc_now()
         with self._lock:
+            self._expire_camera_images(now)
             for command in self._commands.values():
                 if command["delivery_status"] == "PENDING_ACK" and int(now.timestamp() * 1000) > command["expires_at_ms"]:
                     command["delivery_status"] = "ACK_TIMEOUT"
@@ -810,7 +1036,7 @@ class GateWorkflowService:
                 )
                 cmd_id = str(uuid.uuid4())
                 self._emit_gate_command(GateId.IN.value, event_id, cmd_id, "REVIEW_REQUIRED", reason_code=verify_out.reason_code, now_dt=now_dt)
-                return rev
+                return {**rev, "similarity_score": verify_out.similarity}
 
             cmd_id = str(uuid.uuid4())
             approved = self.gate_data_service.confirm_booking_entry_permission(
@@ -973,7 +1199,7 @@ class GateWorkflowService:
             )
             cmd_id = str(uuid.uuid4())
             self._emit_gate_command(GateId.OUT.value, event_id, cmd_id, "REVIEW_REQUIRED", reason_code=verify_out.reason_code, now_dt=now_dt)
-            return rev
+            return {**rev, "similarity_score": verify_out.similarity}
 
         cmd_id = str(uuid.uuid4())
         approved = self.gate_data_service.approve_exit_permission(

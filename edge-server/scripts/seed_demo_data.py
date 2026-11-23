@@ -46,7 +46,7 @@ def load_embedding_from_nam_artifact(
     image_file: Optional[str | Path] = None,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
     """
-    Load 512-D float32 L2-normalized vector + metadata from Nam's extraction tool output
+    Load 512-D float32 L2-normalized vector + metadata from the face-embedding extraction tool output
     (.json or .npy) or extract directly from an image file if InsightFace pipeline is loaded.
     Truthfully preserves liveness_status='Not_used' and liveness_score=None for offline imports.
     """
@@ -68,7 +68,7 @@ def load_embedding_from_nam_artifact(
             vec = FaceTemplateNormalizer.l2_normalize(vec).astype(np.float32)
             return vec, meta
 
-        # JSON output from Nam's Buffalo-L extractor
+        # JSON output from the Buffalo-L embedding extractor
         payload = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(payload, list):
             vec = np.asarray(payload, dtype=np.float32).reshape(-1)
@@ -118,7 +118,7 @@ def load_embedding_from_nam_artifact(
             raw_vec = np.asarray(adapter.extract_embedding(img), dtype=np.float32).reshape(-1)
         else:
             raise RuntimeError(
-                "InsightFaceAdapter chưa gắn hàm extract_embedding; hãy truyền --embedding-file (.json/.npy) từ công cụ của Nam."
+                "InsightFaceAdapter chưa gắn hàm extract_embedding; hãy truyền --embedding-file (.json/.npy) từ công cụ trích xuất khuôn mặt."
             )
         vec = FaceTemplateNormalizer.l2_normalize(raw_vec).astype(np.float32)
         # Offline image import did not run live anti-spoof scan -> liveness_status='Not_used'
@@ -320,7 +320,7 @@ def main() -> None:
         "--embedding-file",
         type=str,
         default=None,
-        help="Đường dẫn file .json hoặc .npy chứa vector 512-D chuẩn hóa L2 từ công cụ Buffalo-L của Nam",
+        help="Đường dẫn file .json hoặc .npy chứa vector 512-D chuẩn hóa L2 từ công cụ trích xuất Buffalo-L",
     )
     parser.add_argument(
         "--image-file",

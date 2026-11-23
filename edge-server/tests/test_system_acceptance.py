@@ -1,5 +1,5 @@
 """
-Automated Acceptance Test Suite for Viet's Scope (PBL4 Smart Parking IoT - MySQL/InnoDB + FastAPI).
+System acceptance tests for PBL4 Smart Parking IoT (MySQL/InnoDB + FastAPI).
 Covers T01, T02, T03, T04, T05, T06, T07, T08, T13, T15, T19, T20, VII.4 RBAC, Lock Ordering, and Cipher.
 """
 from __future__ import annotations
@@ -93,7 +93,7 @@ def _reset_real_mysql_tables(db: MySQLDatabase) -> None:
         conn.close()
 
 
-class VietSmartParkingAcceptanceTests(unittest.TestCase):
+class SystemAcceptanceTests(unittest.TestCase):
     """Comprehensive acceptance tests for MySQL repositories, services, concurrency, and FastAPI routes."""
 
     _use_real_mysql: Optional[bool] = None
@@ -103,6 +103,8 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.base_time = datetime(2026, 11, 18, 12, 0, 0, tzinfo=timezone.utc)
         self.settings = Settings(
+            capture_sample_count=1,
+            capture_timeout_seconds=5,
             mysql_host="127.0.0.1",
             mysql_port=3306,
             mysql_user="root",
@@ -116,16 +118,16 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
             booking_ttl_minutes=60,
             session_template_retention_hours=24,
         )
-        if VietSmartParkingAcceptanceTests._use_real_mysql is None:
-            VietSmartParkingAcceptanceTests._use_real_mysql = _can_connect_real_mysql(self.settings)
+        if SystemAcceptanceTests._use_real_mysql is None:
+            SystemAcceptanceTests._use_real_mysql = _can_connect_real_mysql(self.settings)
 
-        if VietSmartParkingAcceptanceTests._use_real_mysql:
-            if not VietSmartParkingAcceptanceTests._real_db_initialized:
+        if SystemAcceptanceTests._use_real_mysql:
+            if not SystemAcceptanceTests._real_db_initialized:
                 init_mysql_database(settings=self.settings, drop_existing=True)
-                VietSmartParkingAcceptanceTests._real_db = MySQLDatabase(self.settings)
-                VietSmartParkingAcceptanceTests._real_db_initialized = True
-            assert VietSmartParkingAcceptanceTests._real_db is not None
-            self.db = VietSmartParkingAcceptanceTests._real_db
+                SystemAcceptanceTests._real_db = MySQLDatabase(self.settings)
+                SystemAcceptanceTests._real_db_initialized = True
+            assert SystemAcceptanceTests._real_db is not None
+            self.db = SystemAcceptanceTests._real_db
             _reset_real_mysql_tables(self.db)
         else:
             self.db = SandboxMySQLTestDatabase(self.settings)
@@ -865,7 +867,7 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
         self.assertEqual(ctx.exception.reason_code, "BOOKING_ALREADY_EXPIRED")
 
     def test_deny_gate_event_and_cancel_unpassed_entry_session(self) -> None:
-        """Verify Duy's gate failure/timeout rollback hooks keep booking & slot states clean."""
+        """Verify gate failure/timeout rollback hooks keep booking & slot states clean."""
         t0 = self.base_time
         self._refresh_all_slots_free(t0, sequence=130)
         demo_user = self.seed_info["demo_user"]
@@ -937,6 +939,7 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
         and confirm serve_frontend.py compiles cleanly with zero leftover import.meta tokens.
         """
         import json
+        import re
 
         repo_root = _EDGE_ROOT.parent
         routes_json_path = repo_root / "contracts" / "driver-routes.json"
@@ -998,7 +1001,15 @@ class VietSmartParkingAcceptanceTests(unittest.TestCase):
             spa_resp = self.client.get(spa_path)
             self.assertEqual(spa_resp.status_code, 200, f"Expected 200 on unified SPA route {spa_path}")
             body_text = getattr(spa_resp, "text", "") or str(spa_resp.json() if hasattr(spa_resp, "json") else "")
-            self.assertIn("@babel/standalone@7.24.7", body_text)
+            dist_index = dashboard_dir / "dist" / "index.html"
+            if dist_index.is_file():
+                self.assertEqual(body_text, dist_index.read_text(encoding="utf-8"))
+                assets = re.findall(r'(?:src|href)="(/assets/[^\"]+)"', body_text)
+                self.assertTrue(assets, "Vite HTML must reference its built assets")
+                for asset_path in assets:
+                    self.assertEqual(self.client.get(asset_path).status_code, 200, asset_path)
+            else:
+                self.assertIn("@babel/standalone@7.24.7", body_text)
 
 
 if __name__ == "__main__":

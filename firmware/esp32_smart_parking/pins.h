@@ -7,7 +7,6 @@
  * Lưu ý quan trọng:
  * - Bỏ hoàn toàn DevKit V1, hai LED xanh/đỏ ngoài và hai điện trở 220 ohm.
  * - Giữ PSRAM (GPIO35-37) cho camera; không dùng microSD và để trống USB-OTG.
- * - GPIO20 dùng cho còi MH-FMD nên dùng Serial0 UART thay vì USB native CDC trên GPIO19/20.
  */
 
 // 1. Hai cảm biến IR tại cổng (theo mạch thử: LOW là có vật)
@@ -24,8 +23,6 @@
 #define PIN_SERVO_IN       38
 #define PIN_SERVO_OUT      39
 
-// 4. Còi MH-FMD (Active LOW: LOW = bật còi, HIGH = tắt còi)
-#define PIN_BUZZER         20
 
 // 5. Màn hình OLED SSD1306 128x64 I2C (Địa chỉ 0x3C)
 #define PIN_OLED_SDA       40

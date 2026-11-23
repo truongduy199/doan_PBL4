@@ -1,4 +1,4 @@
-"""License Plate Pipeline integrating Nam's `modules/license_plate_yolo_numpy` (Section II & IV.1)."""
+"""License Plate Pipeline integrating `modules/license_plate_yolo_numpy` (Section II & IV.1)."""
 from __future__ import annotations
 
 from collections import Counter
@@ -54,7 +54,7 @@ class PlateRecognitionOutcome:
 
 class PlatePipeline:
     """
-    Wraps Nam's `LicensePlateReader` (YOLO detector + NumPy MLP OCR):
+    Wraps `LicensePlateReader` (YOLO detector + NumPy MLP OCR):
     - Enforces single clear plate candidate inside gate ROI (rejects multiple ambiguous plates per Section II.5).
     - Normalizes and validates Vietnamese license plate format without forcing near-matches.
     - Supports multi-frame voting across a burst of frames from ESP32-S3 OV5640.
@@ -69,12 +69,14 @@ class PlatePipeline:
         detector_version: str = "yolo-plate-best-v1",
         ocr_version: str = "numpy-mlp-coco-v1",
         lazy_init: bool = True,
+        detector_imgsz: int = 1280,
     ) -> None:
         self._reader = reader
         self.conf = conf
         self.iou = iou
         self.detector_version = detector_version
         self.ocr_version = ocr_version
+        self.detector_imgsz = detector_imgsz
         if not lazy_init and self._reader is None:
             self._ensure_reader()
 
@@ -83,7 +85,7 @@ class PlatePipeline:
             return self._reader
         from license_plate_yolo_numpy import LicensePlateReader  # type: ignore
 
-        self._reader = LicensePlateReader(conf=self.conf, iou=self.iou)
+        self._reader = LicensePlateReader(conf=self.conf, iou=self.iou, detector_imgsz=self.detector_imgsz)
         return self._reader
 
     @staticmethod
@@ -301,6 +303,12 @@ class PlatePipeline:
             )
 
         winner_plate = most_common[0][0]
+        if len(frames_bgr) >= 3 and most_common[0][1] < 2:
+            first = valid_outcomes[0]
+            from dataclasses import replace
+            return replace(first, ok=False, reason_code="PLATE_INSUFFICIENT_CONSENSUS",
+                           message="Chưa có ít nhất hai ảnh cùng đọc đúng một biển số.",
+                           normalized_plate="", display_plate="", ocr_confidence=None)
         for o in valid_outcomes:
             if o.normalized_plate == winner_plate:
                 return o

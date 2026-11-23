@@ -1,4 +1,4 @@
-"""Gate & Session Data Service for Duy's Gate/IR Orchestration and Nam's AI Pipeline."""
+"""Gate and session data service for gate/IR orchestration and AI integration."""
 from __future__ import annotations
 
 import random
@@ -67,7 +67,7 @@ class GateDataService:
         self.settings = settings or get_settings()
 
     def _encrypt_face_payload(self, face_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate & encrypt 512-D float32 L2-normalized embedding from Nam's AI payload."""
+        """Validate & encrypt 512-D float32 L2-normalized embedding from the AI payload."""
         raw_vec = face_data.get("embedding")
         if raw_vec is None:
             raw_vec = face_data.get("vector_np")

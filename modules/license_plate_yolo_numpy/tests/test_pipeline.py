@@ -57,6 +57,19 @@ class OCRSpy:
         return OCRResult(raw_text="ABC", text="43A12345", char_count=8)
 
 
+def test_explicit_detector_size_keeps_crop_in_original_image_coordinates():
+    class Detector:
+        def predict(self, source, conf, iou, verbose, imgsz):
+            assert imgsz == 1280
+            return [SimpleNamespace(boxes=[BoxMock([40, 30, 100, 80])])]
+    frame = np.zeros((120, 160, 3), dtype=np.uint8)
+    frame[30:80, 40:100] = (10, 20, 30)
+    ocr = OCRSpy()
+    result = LicensePlateReader(detector=Detector(), ocr=ocr, detector_imgsz=1280).predict(frame)
+    assert result[0].bbox == (40, 30, 100, 80)
+    assert np.array_equal(ocr.images[0], frame[30:80, 40:100])
+
+
 def test_crop_bgr_clip_multiple_and_order():
     img = np.zeros((90, 140, 3), dtype=np.uint8)
     img[10:30, 4:54] = (5, 10, 200)  # BGR khác RGB để bắt lỗi đổi màu

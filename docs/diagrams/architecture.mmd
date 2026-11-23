@@ -1,1 +1,8 @@
-﻿graph TD\n  ESP[ESP32] <-->|Serial| EDGE[Edge Server]\n  CAM[3 Cameras] --> EDGE\n  EDGE <--> DB[(SQLite)]\n  EDGE --> FB[(Firebase)]\n  DASH[Dashboard] <--> FB
+flowchart LR
+    CTRL["ESP32-S3 biển số / IR / barie"] <-->|"MQTT"| MQTT["Mosquitto"]
+    FACE["ESP32-S3 khuôn mặt"] <-->|"MQTT"| MQTT
+    MQTT <--> EDGE["FastAPI / điều phối / AI"]
+    CTRL -->|"HTTP JPEG"| EDGE
+    FACE -->|"HTTP JPEG"| EDGE
+    EDGE <--> DB[("MySQL / InnoDB")]
+    DASH["React User / Admin"] <-->|"REST và WebSocket / SSE"| EDGE

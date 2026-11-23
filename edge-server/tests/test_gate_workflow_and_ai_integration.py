@@ -1,4 +1,4 @@
-"""Integration tests for Nam's AI pipelines (Plate + Face + Liveness) and Duy's HTTP/MQTT Gate Workflow."""
+"""Integration tests for AI pipelines (plate, face, liveness) and the HTTP/MQTT gate workflow."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -131,7 +131,7 @@ def test_plate_pipeline_uses_nam_ocr_and_rejects_multiple_plates() -> None:
 
 
 def test_http_device_image_upload_and_mqtt_gate_workflow_end_to_end() -> None:
-    settings = Settings(slot_stale_seconds=300, device_api_key="integration-test-key")
+    settings = Settings(slot_stale_seconds=300, device_api_key="integration-test-key", capture_sample_count=1)
     fake_db = SandboxMySQLTestDatabase(settings)
     container = build_container(settings=settings, db=fake_db)
     seed_demo_data(uow=container.uow, cipher=container.cipher, settings=settings, with_test_fixtures=True, init_slots_free=True)
@@ -176,12 +176,12 @@ def test_http_device_image_upload_and_mqtt_gate_workflow_end_to_end() -> None:
     client = LocalTestClient(app)
 
     # 1. User books slot B1
-    login_resp = client.post("/api/auth/login", json={"username": "viet_user", "password": settings.demo_user_password})
+    login_resp = client.post("/api/auth/login", json={"username": settings.demo_user_username, "password": settings.demo_user_password})
     assert login_resp.status_code == 200
     token = login_resp.json()["access_token"]
     book_resp = client.post(
         "/api/bookings",
-        json={"slot_id": "B1"},
+        json={"vehicle_id": login_resp.json()["user"]["vehicles"][0]["vehicle_id"], "slot_id": "B1"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert book_resp.status_code == 201

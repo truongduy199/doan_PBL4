@@ -5,7 +5,7 @@
  * Cấu hình Firmware ESP32-S3 N16R8 OV5640 (Mục IV.2, IV.3, IV.9 & VIII.2 Báo cáo PBL4)
  *
  * Chế độ biên dịch cho 2 bo ESP32-S3:
- * - BOARD_ROLE_PLATE_CTRL (1): Bo S3 biển số kiêm điều khiển 6 IR, 2 Servo, OLED, Còi, MQTT & HTTP Camera.
+ * - BOARD_ROLE_PLATE_CTRL (1): Bo S3 biển số kiêm điều khiển 6 IR, 2 Servo, OLED, MQTT & HTTP Camera.
  * - BOARD_ROLE_FACE_CAM   (2): Bo S3 khuôn mặt độc lập (chỉ nhận yêu cầu chụp MQTT và gửi JPEG qua HTTP).
  */
 #define BOARD_ROLE_PLATE_CTRL  1
@@ -30,10 +30,12 @@
 #define DEVICE_ID              "s3_plate_ctrl"
 #define CAMERA_ID              "cam_plate"
 #define TOPIC_CAM_CAPTURE      "parking/cameras/plate/capture"
+#define TOPIC_CAM_STREAM       "parking/cameras/plate/stream"
 #else
 #define DEVICE_ID              "s3_face_cam"
 #define CAMERA_ID              "cam_face"
 #define TOPIC_CAM_CAPTURE      "parking/cameras/face/capture"
+#define TOPIC_CAM_STREAM       "parking/cameras/face/stream"
 #endif
 
 // Cấu hình mạng Wi-Fi Hotspot 2.4 GHz & Laptop Backend/Broker (Mục VIII.1)
@@ -68,10 +70,8 @@
 #define SNAPSHOT_INTERVAL_MS        3000UL   // Chu kỳ gửi snapshot định kỳ 4 ô đỗ + heartbeat
 #define HEARTBEAT_INTERVAL_MS       5000UL   // Chu kỳ gửi trạng thái thiết bị
 
-// Mức logic cảm biến IR và Còi MH-FMD theo Mục IV.2
+// Mức logic cảm biến IR theo Mục IV.2
 #define IR_ACTIVE_STATE             LOW      // LOW = có vật cản/xe; HIGH = trống
-#define BUZZER_ON_LEVEL             LOW      // MH-FMD Active LOW
-#define BUZZER_OFF_LEVEL            HIGH
 
 // Cấu hình PWM Servo LEDC (Timer 1, Kênh 2 & 3, 14-bit, 50Hz - tách riêng khỏi Timer 0 của Camera)
 #define SERVO_LEDC_TIMER            1
@@ -81,8 +81,19 @@
 #define SERVO_PWM_RES_BITS          14
 #define SERVO_ANGLE_CLOSED          0
 #define SERVO_ANGLE_OPEN            170      // Góc mở kế thừa chương trình test (Mục IV.9)
-#define SERVO_MIN_PULSE_US          500
-#define SERVO_MAX_PULSE_US          2400
+#define SERVO_MIN_PULSE_US          1000
+#define SERVO_MAX_PULSE_US          2000
+
+#define CAMERA_STREAM_INTERVAL_MS      200UL
+#define CAMERA_STREAM_MAX_DURATION_MS  30000UL
+
+// Correct the mounted OV5640 image relative to the driver's initial orientation.
+// Flip vertically only: flipping both axes left plate text horizontally mirrored.
+#define CAMERA_FLIP_VERTICAL           1
+#define CAMERA_FLIP_HORIZONTAL         0
+// Allocate buffers for stills first; live MJPEG remains VGA for smooth streaming.
+#define CAMERA_AI_FRAME_SIZE           FRAMESIZE_UXGA
+#define CAMERA_LIVE_FRAME_SIZE         FRAMESIZE_VGA
 
 // Private overrides (never commit this file). Board role may also be set with -D BOARD_ROLE=2.
 #if __has_include("config.local.h")

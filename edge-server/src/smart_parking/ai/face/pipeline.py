@@ -273,6 +273,7 @@ class FacePipeline:
         *,
         require_liveness: bool = True,
         min_valid_samples: int = 1,
+        min_sample_similarity: float = 0.65,
         roi: Optional[Tuple[int, int, int, int]] = None,
     ) -> FacePipelineResult:
         """Aggregate multiple frames into a single L2-normalized 512-D template (Section I.5)."""
@@ -323,7 +324,14 @@ class FacePipeline:
             )
 
         try:
-            aggregated_tpl = FaceTemplateNormalizer.build_template(valid_embeddings)
+            normalized_samples = [FaceTemplateNormalizer.l2_normalize(e) for e in valid_embeddings]
+            for index, sample in enumerate(normalized_samples):
+                if any(float(np.dot(sample, other)) < min_sample_similarity for other in normalized_samples[index + 1:]):
+                    return FacePipelineResult(
+                        False, "FACE_SAMPLES_INCONSISTENT", "Các ảnh khuôn mặt không đủ nhất quán để tạo một mẫu.",
+                        None, None, LivenessStatus.PASSED.value if require_liveness else LivenessStatus.NOT_USED.value,
+                        min(live_scores) if live_scores else None, self.model_id, self.model_version, self.config_version)
+            aggregated_tpl = FaceTemplateNormalizer.build_template(normalized_samples)
         except ValueError as exc:
             return FacePipelineResult(
                 ok=False,

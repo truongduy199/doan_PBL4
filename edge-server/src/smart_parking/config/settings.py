@@ -101,6 +101,9 @@ class Settings:
         self.controller_device_id = str(option("controller_device_id", "s3_plate_ctrl"))
         self.face_camera_device_id = str(option("face_camera_device_id", "s3_face_cam"))
         self.capture_timeout_seconds = int(option("capture_timeout_seconds", 5))
+        self.capture_sample_count = int(option("capture_sample_count", 1))
+        if not 1 <= self.capture_sample_count <= 5:
+            raise ValueError("capture_sample_count must be between 1 and 5")
         self.gate_turn_timeout_seconds = int(option("gate_turn_timeout_seconds", 120))
         self.command_ttl_seconds = int(option("command_ttl_seconds", 8))
         self.max_pending_turns = int(option("max_pending_turns", 16))

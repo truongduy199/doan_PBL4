@@ -1,5 +1,11 @@
 # Hướng Dẫn Chạy & Kiểm Thử Web User + Admin Dashboard (Smart Parking PBL4)
 
+Dashboard ADMIN có tab **Camera** và hai khung ảnh tại Tổng quan/Thiết bị. Khi IR tạo lượt xe, mỗi bo mở một HTTP POST giữ kết nối để gửi MJPEG lên backend; trình duyệt xem MJPEG qua endpoint quản trị, mục tiêu 5 khung/giây mỗi camera. JSON trạng thái được lấy mỗi giây với `images=0`, không mang Base64 JPEG. Tốc độ thực tế phụ thuộc Wi-Fi và thời gian chụp. Luồng dừng khi lượt xe kết thúc, bị hủy hoặc hết thời hạn; thời hạn 30 giây chỉ được gia hạn nếu heartbeat mới của bo điều khiển xác nhận đúng lượt xe.
+
+Nút **Xem trực tiếp 30 giây** giúp căn camera; nút chụp riêng vẫn lấy ảnh tĩnh. Hai thao tác kiểm tra này không chạy AI, không tạo phiên và không mở barie; bị từ chối khi cổng đang xử lý xe hoặc MQTT mất kết nối. API `GET /api/admin/cameras`, `POST /api/admin/cameras/capture` và `POST /api/admin/cameras/stream` đều yêu cầu ADMIN. Mỗi camera chỉ giữ JPEG gần nhất trong RAM tối đa 30 giây, không ghi ảnh xuống đĩa.
+
+Ảnh/video dùng cookie đăng nhập HTTP-only của backend: `GET /api/admin/cameras/{camera_id}/image` và `GET /api/admin/cameras/{camera_id}/mjpeg?stream_id=...`. Không đặt JWT hoặc khóa thiết bị trong URL; luồng kiểm tra lại quyền mỗi giây, đóng khi phiên stream kết thúc. Ảnh tĩnh cho AI vẫn dùng đường riêng `/api/device/images`.
+
 Giao diện Web User Đặt Chỗ 60 Phút (kèm Mô phỏng góc nhìn người lái sau vô lăng 60fps cho 4 tuyến `A1`, `A2`, `B1`, `B2`) và Admin Dashboard xây dựng bằng **React + TypeScript + Tailwind CSS**, kết nối trực tiếp **FastAPI + MySQL/InnoDB** (đã loại bỏ hoàn toàn Firebase và dữ liệu mock giả).
 
 ---

@@ -1,1 +1,23 @@
-﻿sequenceDiagram\n  autonumber\n  ESP32->>Edge: GATE_IN_TRIGGER\n  Edge->>Camera: Capture plate & face\n  Edge->>Edge: Process AI & assign slot\n  Edge->>ESP32: OPEN_GATE + SET_LCD\n  ESP32->>Edge: PASSAGE_COMPLETED
+sequenceDiagram
+    autonumber
+    participant CTRL as S3 điều khiển
+    participant MQTT as Mosquitto
+    participant Edge as FastAPI / AI
+    participant FACE as S3 khuôn mặt
+    participant DB as MySQL
+    CTRL->>MQTT: parking/gates/IN/detected
+    MQTT->>Edge: Sự kiện lượt xe
+    Edge->>MQTT: Yêu cầu chụp biển số và khuôn mặt
+    MQTT->>CTRL: Yêu cầu chụp biển số
+    MQTT->>FACE: Yêu cầu chụp khuôn mặt
+    CTRL->>Edge: HTTP JPEG biển số và metadata
+    FACE->>Edge: HTTP JPEG khuôn mặt và metadata
+    Edge->>Edge: Nhận diện / liveness / đối sánh
+    Edge->>DB: Giao dịch cấp quyền nếu đủ điều kiện
+    DB-->>Edge: Commit thành công
+    Edge->>MQTT: Lệnh OPEN cho cổng IN
+    MQTT->>CTRL: Lệnh có event_id và expires_at_ms
+    CTRL->>MQTT: ACK nhận lệnh / ra lệnh servo
+    CTRL->>MQTT: PASSAGE_CONFIRMED sau khi IR trống đủ thời gian
+    MQTT->>Edge: Xác nhận xe qua cổng
+    Edge->>DB: Cập nhật phiên theo xác nhận passage

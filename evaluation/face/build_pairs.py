@@ -1,1 +1,0 @@
-﻿# Tạo cặp ảnh positive/negative cho kiểm thử khuôn mặt

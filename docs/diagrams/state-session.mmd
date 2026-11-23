@@ -1,1 +1,8 @@
-﻿stateDiagram-v2\n  [*] --> INIT\n  INIT --> ENTRY_PENDING\n  ENTRY_PENDING --> ACTIVE: Passage verified\n  ACTIVE --> EXIT_PENDING: Exit trigger\n  EXIT_PENDING --> COMPLETED: Exit verified\n  COMPLETED --> [*]
+stateDiagram-v2
+    [*] --> Entry_pending
+    Entry_pending --> Active: Xác nhận xe qua cổng vào
+    Entry_pending --> Cancelled: Hủy lượt chưa qua cổng sau đối soát
+    Active --> Exit_pending: Cấp quyền ra
+    Exit_pending --> Closed: Xác nhận xe qua cổng ra
+    Closed --> [*]
+    Cancelled --> [*]

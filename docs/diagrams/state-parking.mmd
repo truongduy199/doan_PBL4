@@ -1,1 +1,16 @@
-﻿stateDiagram-v2\n  [*] --> FREE\n  FREE --> ASSIGNED\n  ASSIGNED --> OCCUPIED\n  OCCUPIED --> FREE
+stateDiagram-v2
+    [*] --> Unknown
+    Unknown --> Free: IR ổn định và còn mới
+    Unknown --> Occupied: IR ổn định và còn mới
+    Free --> Occupied: Có xe ổn định
+    Occupied --> Free: Trống ổn định
+    Free --> Unknown: Snapshot trạng thái chưa xác định
+    Occupied --> Unknown: Snapshot trạng thái chưa xác định
+    Unknown --> Fault: Phát hiện lỗi cảm biến
+    Fault --> Free: Khôi phục dữ liệu trống hợp lệ
+    Fault --> Occupied: Khôi phục dữ liệu có xe hợp lệ
+    note right of Free
+        Độ mới dữ liệu và quyền đặt/giữ ô được kiểm tra riêng.
+        Snapshot quá hạn khiến ô không được cấp mới,
+        không tự xóa booking hoặc phiên đang giữ ô.
+    end note

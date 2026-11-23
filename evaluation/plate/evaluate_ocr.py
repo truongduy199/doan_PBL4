@@ -1,1 +1,0 @@
-﻿# Đo lường độ chính xác OCR biển số xe

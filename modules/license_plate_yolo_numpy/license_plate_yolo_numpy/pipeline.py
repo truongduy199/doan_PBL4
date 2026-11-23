@@ -32,6 +32,7 @@ class LicensePlateReader:
         *,
         detector=None,
         ocr=None,
+        detector_imgsz: int | None = None,
     ):
         if not 0 < conf <= 1:
             raise ValueError("--conf phải nằm trong (0, 1]")
@@ -39,6 +40,9 @@ class LicensePlateReader:
             raise ValueError("--iou phải nằm trong (0, 1]")
         self.conf = conf
         self.iou = iou
+        if detector_imgsz is not None and (detector_imgsz < 320 or detector_imgsz > 1920 or detector_imgsz % 32):
+            raise ValueError("detector_imgsz phải là bội số 32 trong khoảng 320..1920")
+        self.detector_imgsz = detector_imgsz
 
         if detector is None:
             path = Path(yolo_weights)
@@ -62,9 +66,8 @@ class LicensePlateReader:
                 or image_bgr.dtype != np.uint8 or image_bgr.size == 0):
             raise ValueError("Ảnh đầu vào phải là NumPy uint8 HxWx3 định dạng BGR")
         height, width = image_bgr.shape[:2]
-        detections = self.detector.predict(
-            source=image_bgr, conf=self.conf, iou=self.iou, verbose=False
-        )
+        options = {"imgsz": self.detector_imgsz} if self.detector_imgsz is not None else {}
+        detections = self.detector.predict(source=image_bgr, conf=self.conf, iou=self.iou, verbose=False, **options)
         if not detections:
             return []
         boxes = detections[0].boxes

@@ -1,1 +1,11 @@
-﻿stateDiagram-v2\n  [*] --> IDLE\n  IDLE --> WAITING_VEHICLE: Vehicle detected\n  WAITING_VEHICLE --> BARRIER_OPEN: Approved\n  BARRIER_OPEN --> CLOSING: Passage completed\n  CLOSING --> IDLE
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Waiting_backend: IR phát hiện xe ổn định
+    Waiting_backend --> Open: Lệnh hợp lệ và xe còn hiện diện
+    Waiting_backend --> Idle: Xe rời cổng trước khi cấp quyền
+    Waiting_backend --> Review_required: Timeout hoặc cần đối soát
+    Open --> Clear_wait: IR trống
+    Clear_wait --> Open: IR có vật trở lại
+    Clear_wait --> Closing: Trống liên tục đủ 3 giây
+    Closing --> Open: Phát hiện vật khi đang đóng
+    Closing --> Idle: Đóng hoàn tất

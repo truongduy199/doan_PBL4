@@ -1,4 +1,4 @@
-"""Read-only source/runtime checks. Never seed, reset a DB or send gate commands."""
+"""Read-only project source, runtime dependency, and network checks."""
 from __future__ import annotations
 import argparse
 import ast

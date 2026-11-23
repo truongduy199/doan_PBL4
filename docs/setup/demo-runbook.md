@@ -1,8 +1,8 @@
 # Demo Runbook & Quy Trình Test Khi Lắp Phần Cứng Thật (PBL4 Smart Parking IoT)
 
-> Cấu hình và trình tự tích hợp hiện hành: [Bàn giao phần Duy](../setup/duy-handover.md). Firmware thật dùng HTTP/MQTT; Serial i/o chỉ bật trong môi trường Wokwi. Các đoạn hướng dẫn DevKit/Serial/ba camera phía dưới là mô tả cũ, không dùng để đấu nối hoặc triển khai bản hai S3.
+> Cấu hình và trình tự tích hợp hiện hành: [Hướng dẫn tích hợp hệ thống](../setup/system-integration.md). Firmware thật dùng HTTP/MQTT; Serial i/o chỉ bật trong môi trường Wokwi. Các đoạn hướng dẫn DevKit/Serial/ba camera phía dưới là mô tả cũ, không dùng để đấu nối hoặc triển khai bản hai S3.
 
-Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi ghép **Phần cứng (ESP32 + 4 cảm biến IR + Barie + Camera)**, **AI (Nam)**, **Điều phối cổng/MQTT/Serial (Duy)** và **Database MySQL + FastAPI + Web User (Việt)** để kiểm thử tích hợp và chạy demo bảo vệ đồ án.
+Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi ghép **Phần cứng (ESP32 + 4 cảm biến IR + Barie + Camera)**, **AI nhận diện biển số/khuôn mặt**, **Điều phối cổng/MQTT** và **Database MySQL + FastAPI + Web User** để kiểm thử tích hợp và chạy demo bảo vệ đồ án.
 
 ---
 
@@ -17,7 +17,7 @@ Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi
    - Kiểm tra `DEMO_VEHICLE_PLATE` khớp đúng biển số dán trên xe mô hình thật (ví dụ `43A12345`).
    - Kiểm tra `SERIAL_PORT` khớp cổng COM của ESP32 trong Device Manager (ví dụ `COM3`).
 2. **Bật XAMPP MySQL** (cổng `3306`, user `root`, mật khẩu rỗng).
-3. **Khởi tạo bảng và nạp mẫu khuôn mặt tài xế thật từ công cụ Buffalo-L của Nam:**
+3. **Khởi tạo bảng và nạp mẫu khuôn mặt tài xế thật từ công cụ trích xuất Buffalo-L:**
    ```powershell
    cd c:\PBL4\doan_PBL4
    edge-server\.venv\Scripts\python.exe edge-server\scripts\init_database.py
@@ -38,7 +38,7 @@ Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi
    cd c:\PBL4\doan_PBL4
    edge-server\.venv\Scripts\uvicorn.exe smart_parking.interfaces.http.app:app --host 127.0.0.1 --port 8000
    ```
-2. **Cấp nguồn mạch ESP32 + 4 cảm biến IR (`IR_A1`..`IR_B2`) + Barie + Camera** và khởi chạy tiến trình cầu nối phần cứng/AI của Duy & Nam (gọi trực tiếp vào `GateDataService`).
+2. **Cấp nguồn mạch ESP32 + 4 cảm biến IR (`IR_A1`..`IR_B2`) + Barie + Camera** và khởi chạy tiến trình cầu nối phần cứng/AI (gọi trực tiếp vào `GateDataService`).
 3. **Mở song song 2 trình duyệt trên laptop:**
    - **Google Chrome** → `http://127.0.0.1:8000/login` → Đăng nhập **ADMIN** (`admin` / `Admin@123`).
    - **Microsoft Edge** → `http://127.0.0.1:8000/login` → Đăng nhập **USER Demo** (`viet_user` / `Viet@123`).
@@ -51,7 +51,7 @@ Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi
 
 ## 3. Quy Trình Test Luồng Chính End-to-End: Xe Đặt Trước 60 Phút (`T07` & `T15`)
 
-| Giai đoạn | Thao tác phần cứng & Web | Tầng dữ liệu (Hàm Duy/Nam gọi) | Kết quả hiển thị tức thì trên Web User & Admin |
+| Giai đoạn | Thao tác phần cứng & Web | Tầng dữ liệu và dịch vụ nghiệp vụ | Kết quả hiển thị tức thì trên Web User & Admin |
 | :--- | :--- | :--- | :--- |
 | **Bước 1: Đặt giữ chỗ trên Web User** | Trên Edge (`viet_user`), chọn ô xanh **`B1`** → bấm **"Đặt giữ ô B1 (60 phút)"**. Xem mô phỏng góc nhìn người lái sau vô lăng (không mở barie thật). | `POST /api/bookings` (`BookingService.create_booking`) | Web User hiện khung **`ĐẶT CHỖ ĐANG HIỆU LỰC`**, đồng hồ đếm ngược 60 phút, ô `B1` vàng **`Đã đặt trước`**. Bấm F5 đồng hồ vẫn đếm tiếp không reset (`T04`). |
 | **Bước 2: Xe đến Cổng Vào (`Gate IN`)** | Đặt xe mô hình biển **`43A-123.45`** vào vị trí cảm biến Cổng Vào + tài xế thật nhìn vào Camera khuôn mặt. | `begin_booking_checkin` → AI đối sánh 1:1 với `user_face_templates` + Liveness | Web User sáng bước **`2. Đối soát cổng vào`** (`Checkin_pending`). Nút Hủy đặt chỗ tự khóa. |
@@ -66,11 +66,11 @@ Tài liệu này hướng dẫn quy trình chuẩn từ đầu đến cuối khi
 
 1. **Khách vãng lai không đặt trước (`T01`):**
    - `viet_user` đặt trước ô `B1` (ô `B1` vẫn trống vật lý).
-   - Đưa xe lạ (ví dụ `92A-999.99`) vào Cổng Vào → Duy gọi `allocate_walkin_entry(...)` → hệ thống chỉ cấp trong các ô trống còn lại (`A1`, `A2`, `B2`), tuyệt đối không lấy `B1`. Nếu cả 3 ô kia đều đầy thì từ chối (`ERR_PARKING_FULL`).
+   - Đưa xe lạ (ví dụ `92A-999.99`) vào Cổng Vào → backend gọi `allocate_walkin_entry(...)` → hệ thống chỉ cấp trong các ô trống còn lại (`A1`, `A2`, `B2`), tuyệt đối không lấy `B1`. Nếu cả 3 ô kia đều đầy thì từ chối (`ERR_PARKING_FULL`).
 2. **Đỗ sai ô (`Parking_review_required`):**
    - Xe được cấp ô `B1` nhưng cố tình đặt vào ô `A2` (che `IR_A2`) → `update_ir_slot_snapshot` giữ nguyên `assigned_slot_id = B1` và đẩy cảnh báo `Parking_review_required` lên tab **🔍 Duyệt Thủ Công** trên Admin Dashboard.
 3. **Khuôn mặt bất định / Duyệt thủ công (`Manual Review`):**
-   - Khi tài xế che mặt hoặc góc nghiêng khiến độ tương đồng nằm giữa `T_reject` và `T_accept` → Duy gọi `flag_gate_review_required(...)` → Admin vào tab **🔍 Duyệt Thủ Công**, nhập lý do và bấm **✓ Cho phép (`APPROVE`)** hoặc **✕ Từ chối (`DENY`)** → hệ thống gọi `POST /api/admin/reviews/{event_id}/decision` và ghi log kiểm toán `MANUAL_REVIEW`.
+   - Khi tài xế che mặt hoặc góc nghiêng khiến độ tương đồng nằm giữa `T_reject` và `T_accept` → backend gọi `flag_gate_review_required(...)` → Admin vào tab **🔍 Duyệt Thủ Công**, nhập lý do và bấm **✓ Cho phép (`APPROVE`)** hoặc **✕ Từ chối (`DENY`)** → hệ thống gọi `POST /api/admin/reviews/{event_id}/decision` và ghi log kiểm toán `MANUAL_REVIEW`.
 4. **Reset nhanh dữ liệu sạch sau mỗi lượt chạy thử:**
    ```powershell
    & "C:\xampp\mysql\bin\mysql.exe" -h 127.0.0.1 -P 3306 -u root --default-character-set=utf8mb4 smart_parking_pbl4 < backup_smart_parking_demo.sql

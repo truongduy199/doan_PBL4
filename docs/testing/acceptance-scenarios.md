@@ -1,6 +1,6 @@
-# Kịch Bản Kiểm Thử Nghiệm Thu (Acceptance Scenarios — Phần Việc Của Việt)
+# Kịch Bản Kiểm Thử Nghiệm Thu (Luồng nghiệp vụ và phân quyền)
 
-Bộ kiểm thử tự động trong `edge-server/tests/test_viet_acceptance_suite.py` kiểm chứng toàn bộ các ca nghiệm thu bắt buộc:
+Bộ kiểm thử tự động trong `edge-server/tests/test_system_acceptance.py` kiểm chứng toàn bộ các ca nghiệm thu bắt buộc:
 
 | Mã Ca | Tên Kịch Bản Nghiệm Thu | Kỳ Vọng Kết Quả |
 | :--- | :--- | :--- |

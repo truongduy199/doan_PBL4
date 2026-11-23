@@ -1,10 +1,10 @@
-# Hợp Đồng API, Xác Thực & Tích Hợp Dữ Liệu (Bàn Giao Cho Duy & Nam)
+# Hợp Đồng API, Xác Thực & Tích Hợp Dữ Liệu
 
-Tài liệu này chốt giao diện xác thực, REST/WebSocket API và các hàm dịch vụ dữ liệu Python trong tầng dữ liệu của **Việt** để **Duy** (cổng vào/ra, ESP32 IR, Admin Dashboard) và **Nam** (AI Biển số/OCR & InsightFace Buffalo-L) tích hợp trực tiếp, sạch và an toàn giao dịch.
+Tài liệu này chốt giao diện xác thực, REST/WebSocket API và các hàm dịch vụ dữ liệu Python để tích hợp điều phối cổng, ESP32 IR, Admin Dashboard và AI biển số/khuôn mặt với các giao dịch ngắn, an toàn.
 
 ---
 
-## 1. Hợp Đồng Xác Thực & Phân Quyền (Thống Nhất Với Duy)
+## 1. Hợp Đồng Xác Thực & Phân Quyền
 
 - **Cơ chế kép (Dual Transport):**
   - `POST /api/auth/login` trả về `access_token` (JWT HS256) trong JSON body **và** set HTTP-only cookie `access_token`.
@@ -36,18 +36,25 @@ Tài liệu này chốt giao diện xác thực, REST/WebSocket API và các hà
 | `GET` | `/api/admin/reviews` | ADMIN | Sự kiện cổng (`Review_required`) & bất thường đỗ xe (`Parking_review_required`, `Parking_timeout`). |
 | `POST` | `/api/admin/reviews/{event_id}/decision` | ADMIN | Ghi nhận quyết định `APPROVE` / `DENY` kèm `reason` và ghi log `MANUAL_REVIEW`. |
 | `GET` | `/api/admin/devices` | ADMIN | Độ mới dữ liệu 4 cảm biến IR (`last_seen_at`, `last_boot_id`, `last_sequence`). |
+| `GET` | `/api/admin/cameras` | ADMIN | Hai JPEG gần nhất, hạn hiển thị, mã luồng và bộ đếm khung; `Cache-Control: no-store, private`. |
+| `POST` | `/api/admin/cameras/capture` | ADMIN | Chụp kiểm tra hai ảnh tĩnh, không chạy AI hoặc mở barie. |
+| `POST` | `/api/admin/cameras/stream` | ADMIN | Body `action: START/STOP`; xem kiểm tra tối đa 30 giây, không tạo lượt xe. |
+| `POST` | `/api/device/stream` | Device API key | Nhận JPEG xem trực tiếp, xác thực thiết bị/camera/lượt/mã luồng/số thứ tự tăng dần; không chạy AI. |
+| `POST` | `/api/device/mjpeg` | Device API key | MJPEG upload giữ kết nối, chunked multipart boundary `frame`; xác thực metadata lúc mở và từng khung, giới hạn phần JPEG 5 MiB, header 2 KiB, idle 5 giây. Không chạy AI. |
+| `GET` | `/api/admin/cameras/{camera_id}/mjpeg?stream_id=...` | ADMIN | MJPEG xem trực tiếp qua cookie đăng nhập; kiểm tra lại quyền mỗi giây, đóng khi mã luồng hết hiệu lực. |
+| `GET` | `/api/admin/cameras/{camera_id}/image` | ADMIN | JPEG mới nhất chưa hết hạn; không cache. |
 | `GET` | `/api/admin/logs` | ADMIN | Nhật ký kiểm toán `parking_logs` gần nhất (đã lọc bỏ dữ liệu nhạy cảm). |
 | `WS` / `GET` | `/api/ws` & `/api/events/stream` | Realtime | Phát sự kiện ngay sau khi transaction MySQL commit. |
 
 ---
 
-## 3. Các Hàm Dịch Vụ Dữ Liệu Nội Bộ Cho Duy (`GateDataService` & `RetentionService`)
+## 3. Các Hàm Dịch Vụ Dữ Liệu Nội Bộ (`GateDataService` & `RetentionService`)
 
 Module: `smart_parking.application.services.gate_data_service.GateDataService`
 *(Tầng dữ liệu tuyệt đối **không** tự chạy suy luận AI và **không** tự phát lệnh điều khiển servo/MQTT).*
 
 1. **Xe đặt trước vào cổng (`Gate IN`):**
-   - `begin_booking_checkin(plate_number, event_id, device_id="GATE_IN", now_utc=None)` -> Khóa `vehicles -> parking_slots -> bookings`, chuyển booking sang `Checkin_pending`, trả vector 512-D đã giải mã từ `user_face_templates` để Nam đối sánh 1:1 ngoài transaction.
+   - `begin_booking_checkin(plate_number, event_id, device_id="GATE_IN", now_utc=None)` -> Khóa `vehicles -> parking_slots -> bookings`, chuyển booking sang `Checkin_pending`, trả vector 512-D đã giải mã từ `user_face_templates` để pipeline khuôn mặt đối sánh 1:1 ngoài transaction.
    - `confirm_booking_entry_permission(booking_id, event_id, session_face_template_data, command_id=None, ocr_confidence=None, now_utc=None)` -> Tạo `sessions (Entry_pending)`, lưu mẫu phiên riêng vào `session_face_templates`, gán `parking_slots.reserved_session_id`, cập nhật `gate_events (Approved)`.
 2. **Khách vãng lai vào cổng (`Gate IN`):**
    - `allocate_walkin_entry(plate_number, event_id, session_face_template_data, command_id=None, device_id="GATE_IN", ocr_confidence=None, now_utc=None)` -> Chọn ô thỏa mãn `available(slot)` (không bao giờ lấy ô đang `Reserved`), tạo phiên `Entry_pending` và `session_face_templates`.
@@ -67,7 +74,7 @@ Module: `smart_parking.application.services.gate_data_service.GateDataService`
 
 ---
 
-## 4. Định Dạng File Bàn Giao Embedding 512-D Từ Công Cụ Buffalo-L Của Nam
+## 4. Định Dạng File Bàn Giao Embedding 512-D Từ Công Cụ Trích Xuất Buffalo-L
 
 File JSON đầu ra để nạp bằng lệnh `python scripts/seed_demo_data.py --plate 43A12345 --embedding-file driver_embedding.json`:
 ```json

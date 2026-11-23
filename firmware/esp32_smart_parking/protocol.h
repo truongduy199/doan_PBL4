@@ -5,6 +5,7 @@
 
 void initNetworkAndProtocol();
 void updateNetworkAndProtocol();
+void printNetworkDiagnostics();
 
 const char* getBootId();
 uint32_t nextSequenceNumber();
@@ -28,7 +29,8 @@ bool captureAndUploadImageHttp(
     const char* eventId,
     const char* gateId,
     const char* roi,
-    const char* requestId
+    const char* requestId,
+    bool streamFrame = false
 );
 
 #endif // PROTOCOL_H
