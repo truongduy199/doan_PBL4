@@ -2,11 +2,15 @@
 from dataclasses import dataclass
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from .decoder import decode_plate_characters
 from .mlp_numpy import NumpyMLP
 from .segment import segment_characters
+
+
+_SMALL_PLATE_MAX_WIDTH = 150
 
 
 @dataclass(frozen=True)
@@ -35,7 +39,9 @@ class NumpyPlateOCR:
                 or plate_bgr.size == 0):
             raise ValueError("Ảnh crop OCR phải là NumPy uint8 HxWx3 ở định dạng BGR")
 
-        # Giữ nguyên thuật toán tách ký tự 28x28 của segment.py.
+        # Phóng to biển nhỏ trước khi lọc và tách ký tự.
+        if plate_bgr.shape[1] <= _SMALL_PLATE_MAX_WIDTH:
+            plate_bgr = cv2.resize(plate_bgr, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
         char_items, _threshold_image = segment_characters(plate_bgr)
         if not char_items:
             return OCRResult(raw_text="", text="", char_count=0)
